@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageSnap Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="settings-page">
+    <header>
+      <h1>PageSnap Settings</h1>
+      <p class="subtitle">Configure your content capture preferences</p>
+    </header>
+
+    <section class="settings-section">
+      <h2>AI Configuration</h2>
+      <p class="section-desc">PageSnap uses the Claude API to generate social posts, blog ideas, and summaries from captured content.</p>
+
+      <div class="field">
+        <label for="apiKey">Claude API Key</label>
+        <div class="input-group">
+          <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+          <button class="btn-icon" id="toggleApiKey" title="Show/hide key">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+        </div>
+        <span class="help-text">Get your API key from <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>. Your key is stored locally and never sent anywhere except the Claude API.</span>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h2>Capture Defaults</h2>
+
+      <div class="field">
+        <label for="defaultFormat">Default Export Format</label>
+        <select id="defaultFormat">
+          <option value="png">PNG</option>
+          <option value="jpg">JPG</option>
+          <option value="pdf">PDF</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="jpgQuality">JPG Quality</label>
+        <div class="range-group">
+          <input type="range" id="jpgQuality" min="50" max="100" value="80">
+          <span id="jpgQualityValue">80%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h2>Content Defaults</h2>
+
+      <div class="field">
+        <label for="defaultOutputMode">Default AI Output Mode</label>
+        <select id="defaultOutputMode">
+          <option value="quickquote">Quick Quote (Twitter/X)</option>
+          <option value="linkedin">LinkedIn Post</option>
+          <option value="blogseed">Blog Seed</option>
+          <option value="thread">Thread Builder</option>
+          <option value="summary">Summary Card</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="graphicStyle">Default Graphic Style</label>
+        <select id="graphicStyle">
+          <option value="modern-dark">Modern Dark</option>
+          <option value="modern-light">Modern Light</option>
+          <option value="gradient-purple">Purple Gradient</option>
+          <option value="gradient-ocean">Ocean Gradient</option>
+          <option value="gradient-sunset">Sunset Gradient</option>
+          <option value="gradient-forest">Forest Gradient</option>
+          <option value="bold-red">Bold Red</option>
+          <option value="minimal">Minimal</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h2>Swipe File</h2>
+      <div class="field row">
+        <button class="btn secondary" id="exportSwipefile">Export Library (JSON)</button>
+        <button class="btn danger" id="clearSwipefile">Clear Library</button>
+      </div>
+    </section>
+
+    <div class="save-bar">
+      <span class="save-status" id="saveStatus"></span>
+      <button class="btn primary" id="saveBtn">Save Settings</button>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -1,74 +1,235 @@
 /**
- * PageSnap - Content Script
- * Controls scroll capture loop, zone-select overlay, and editor panel mounting.
- * All capture/stitch logic is inlined to avoid CSP issues on strict sites.
+ * PageSnap v2 - Content Script
+ * Handles capture, content extraction, and editor/output panel mounting.
+ * All capture logic inlined (no script injection) for CSP compatibility.
  */
 
 (function() {
-  // Prevent double-injection
   if (window.__pageSnapInjected) return;
   window.__pageSnapInjected = true;
 
-  // State
   let captureMode = null;
-  let zoneSelectOverlay = null;
-  let scrollRangeState = null;
   let isCapturing = false;
+  let extractedContent = null;
 
   // =========================================================================
-  // Inline Stitch Logic (avoids CSP script injection issues)
+  // Content Extractor (inlined for CSP)
+  // =========================================================================
+
+  const Extractor = {
+    extract() {
+      const content = this._getMainContent();
+      return {
+        url: window.location.href,
+        domain: window.location.hostname,
+        title: this._getTitle(),
+        description: this._getDescription(),
+        author: this._getAuthor(),
+        publishDate: this._getPublishDate(),
+        content: content,
+        excerpt: this._getExcerpt(),
+        images: this._getImages(),
+        ogImage: this._getOGImage(),
+        tags: this._getTags(),
+        wordCount: content.wordCount || 0,
+        readingTime: content.readingTime || 0,
+        timestamp: new Date().toISOString()
+      };
+    },
+
+    _getTitle() {
+      const og = document.querySelector('meta[property="og:title"]');
+      if (og) return og.content;
+      const tw = document.querySelector('meta[name="twitter:title"]');
+      if (tw) return tw.content;
+      const h1 = document.querySelector('article h1, main h1, h1');
+      if (h1) return h1.textContent.trim();
+      return document.title || '';
+    },
+
+    _getDescription() {
+      const og = document.querySelector('meta[property="og:description"]');
+      if (og) return og.content;
+      const meta = document.querySelector('meta[name="description"]');
+      if (meta) return meta.content;
+      return '';
+    },
+
+    _getAuthor() {
+      const meta = document.querySelector('meta[name="author"]');
+      if (meta) return meta.content;
+      const ld = this._getLDJson();
+      if (ld?.author) return typeof ld.author === 'string' ? ld.author : (ld.author.name || '');
+      const selectors = ['[rel="author"]', '.author', '.byline', '[class*="author"]', '[class*="byline"]'];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) return el.textContent.trim();
+      }
+      return '';
+    },
+
+    _getPublishDate() {
+      const meta = document.querySelector('meta[property="article:published_time"]');
+      if (meta) return meta.content;
+      const time = document.querySelector('time[datetime]');
+      if (time) return time.getAttribute('datetime');
+      const ld = this._getLDJson();
+      if (ld?.datePublished) return ld.datePublished;
+      return '';
+    },
+
+    _getMainContent() {
+      const el = this._findContentElement();
+      if (!el) {
+        const text = document.body.innerText.substring(0, 10000);
+        const wc = text.split(/\s+/).length;
+        return { text, html: '', wordCount: wc, readingTime: Math.ceil(wc / 200) };
+      }
+
+      const clone = el.cloneNode(true);
+      const removeSelectors = [
+        'script', 'style', 'nav', 'footer', 'aside',
+        '[class*="sidebar"]', '[class*="comment"]', '[class*="share"]',
+        '[class*="social"]', '[class*="related"]', '[class*="newsletter"]',
+        '[class*="subscribe"]', '[class*="ad-"]', '[class*="advertisement"]',
+        'iframe', '[role="navigation"]', '[role="complementary"]'
+      ];
+      removeSelectors.forEach(sel => {
+        clone.querySelectorAll(sel).forEach(e => e.remove());
+      });
+
+      const text = clone.innerText.trim();
+      const wc = text.split(/\s+/).filter(w => w.length > 0).length;
+      return { text, html: clone.innerHTML, wordCount: wc, readingTime: Math.ceil(wc / 200) };
+    },
+
+    _findContentElement() {
+      const selectors = [
+        'article', '[role="main"] article', 'main article', '[role="main"]', 'main',
+        '.post-content', '.article-content', '.entry-content', '.content-body',
+        '.article-body', '.story-body', '#content', '.post', '.article'
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && el.innerText.trim().length > 200) return el;
+      }
+
+      const candidates = document.querySelectorAll('div, section');
+      let best = null, bestScore = 0;
+      for (const el of candidates) {
+        let score = 0;
+        el.querySelectorAll('p').forEach(p => {
+          const t = p.innerText.trim();
+          if (t.length > 50) score += t.length;
+        });
+        if (score > bestScore) { bestScore = score; best = el; }
+      }
+      return best;
+    },
+
+    _getExcerpt() {
+      const desc = this._getDescription();
+      if (desc) return desc;
+      const p = document.querySelector('article p, main p, .content p');
+      if (p) {
+        const t = p.innerText.trim();
+        if (t.length > 50) return t.length > 300 ? t.substring(0, 297) + '...' : t;
+      }
+      return '';
+    },
+
+    _getImages() {
+      const images = [], seen = new Set();
+      const imgEls = document.querySelectorAll('article img, main img, .content img, img[width]');
+      for (const img of imgEls) {
+        const src = img.src || img.dataset.src;
+        if (!src || seen.has(src)) continue;
+        if (src.startsWith('data:') && src.length < 100) continue;
+        const w = img.naturalWidth || parseInt(img.width) || 0;
+        const h = img.naturalHeight || parseInt(img.height) || 0;
+        if ((w > 0 && w < 50) || (h > 0 && h < 50)) continue;
+        seen.add(src);
+        images.push({ src, alt: img.alt || '', width: w, height: h });
+        if (images.length >= 10) break;
+      }
+      return images;
+    },
+
+    _getOGImage() {
+      const og = document.querySelector('meta[property="og:image"]');
+      if (og) return og.content;
+      const tw = document.querySelector('meta[name="twitter:image"]');
+      if (tw) return tw.content;
+      return '';
+    },
+
+    _getTags() {
+      const meta = document.querySelector('meta[name="keywords"]');
+      if (meta) return meta.content.split(',').map(t => t.trim()).filter(t => t);
+      const tagEls = document.querySelectorAll('[rel="tag"], .tag, .tags a');
+      if (tagEls.length > 0) return Array.from(tagEls).map(el => el.textContent.trim()).slice(0, 10);
+      return [];
+    },
+
+    _getLDJson() {
+      try {
+        const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+        for (const s of scripts) {
+          const d = JSON.parse(s.textContent);
+          if (['Article', 'NewsArticle', 'BlogPosting', 'WebPage'].includes(d['@type'])) return d;
+          if (d['@graph']) {
+            for (const item of d['@graph']) {
+              if (['Article', 'NewsArticle', 'BlogPosting'].includes(item['@type'])) return item;
+            }
+          }
+        }
+      } catch (e) {}
+      return null;
+    }
+  };
+
+  // =========================================================================
+  // Stitch Logic (inlined)
   // =========================================================================
 
   const Stitch = {
     async stitchCaptures(captures, pageWidth, pageHeight, dpr) {
       if (captures.length === 0) throw new Error('No captures to stitch');
-
-      if (captures.length === 1) {
-        return await this._cropSingleCapture(captures[0], pageWidth, pageHeight, dpr);
-      }
+      if (captures.length === 1) return await this._cropSingle(captures[0], pageWidth, pageHeight, dpr);
 
       const images = await Promise.all(captures.map(c => this._loadImage(c.dataUrl)));
-
-      const outputWidth = Math.round(pageWidth * dpr);
-      const outputHeight = Math.min(Math.round(pageHeight * dpr), 32767);
+      const outW = Math.round(pageWidth * dpr);
+      const outH = Math.min(Math.round(pageHeight * dpr), 32767);
 
       const canvas = document.createElement('canvas');
-      canvas.width = outputWidth;
-      canvas.height = outputHeight;
+      canvas.width = outW;
+      canvas.height = outH;
       const ctx = canvas.getContext('2d');
 
       for (let i = 0; i < captures.length; i++) {
-        const capture = captures[i];
-        const img = images[i];
-        const drawY = Math.round(capture.y * dpr);
-
+        const drawY = Math.round(captures[i].y * dpr);
         if (i === captures.length - 1) {
-          const remainingPixels = Math.round(pageHeight * dpr) - drawY;
-          if (remainingPixels < img.height) {
-            const srcY = img.height - remainingPixels;
-            ctx.drawImage(img, 0, srcY, img.width, remainingPixels, 0, drawY, img.width, remainingPixels);
+          const remaining = Math.round(pageHeight * dpr) - drawY;
+          if (remaining < images[i].height) {
+            const srcY = images[i].height - remaining;
+            ctx.drawImage(images[i], 0, srcY, images[i].width, remaining, 0, drawY, images[i].width, remaining);
             continue;
           }
         }
-        ctx.drawImage(img, 0, drawY);
+        ctx.drawImage(images[i], 0, drawY);
       }
-
       return canvas.toDataURL('image/png');
     },
 
-    async _cropSingleCapture(capture, pageWidth, pageHeight, dpr) {
+    async _cropSingle(capture, pageWidth, pageHeight, dpr) {
       const img = await this._loadImage(capture.dataUrl);
-      const targetH = Math.round(pageHeight * dpr);
-      const targetW = Math.round(pageWidth * dpr);
-
-      if (img.height >= targetH && img.width >= targetW) {
-        if (img.height === targetH && img.width === targetW) return capture.dataUrl;
-        const canvas = document.createElement('canvas');
-        canvas.width = targetW;
-        canvas.height = targetH;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, targetW, targetH, 0, 0, targetW, targetH);
-        return canvas.toDataURL('image/png');
+      const tH = Math.round(pageHeight * dpr), tW = Math.round(pageWidth * dpr);
+      if (img.height >= tH && img.width >= tW) {
+        if (img.height === tH && img.width === tW) return capture.dataUrl;
+        const c = document.createElement('canvas');
+        c.width = tW; c.height = tH;
+        c.getContext('2d').drawImage(img, 0, 0, tW, tH, 0, 0, tW, tH);
+        return c.toDataURL('image/png');
       }
       return capture.dataUrl;
     },
@@ -84,80 +245,54 @@
   };
 
   // =========================================================================
-  // Inline Capture Logic
+  // Capture Logic (inlined, with throttling)
   // =========================================================================
 
   const Capture = {
-    async captureFullPage(options = {}) {
-      const scrollDelay = options.scrollDelay || 300;
-      const maxScrolls = options.maxScrolls || 100;
+    _lastCaptureTime: 0,
+    _minInterval: 550,
 
-      const originalScrollX = window.scrollX;
-      const originalScrollY = window.scrollY;
+    async captureFullPage() {
+      const scrollDelay = 300;
+      const maxScrolls = 100;
+      const origX = window.scrollX, origY = window.scrollY;
 
-      const pageWidth = Math.max(
-        document.documentElement.scrollWidth,
-        document.body.scrollWidth || 0
-      );
-      const pageHeight = Math.max(
-        document.documentElement.scrollHeight,
-        document.body.scrollHeight || 0
-      );
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      const pageWidth = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth || 0);
+      const pageHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight || 0);
+      const vpH = window.innerHeight;
       const dpr = window.devicePixelRatio || 1;
 
-      // Hide scrollbars
       const styleEl = document.createElement('style');
       styleEl.id = 'pagesnap-capture-style';
-      styleEl.textContent = `
-        ::-webkit-scrollbar { display: none !important; }
-        * { scrollbar-width: none !important; }
-      `;
+      styleEl.textContent = '::-webkit-scrollbar{display:none!important}*{scrollbar-width:none!important}';
       document.head.appendChild(styleEl);
 
-      // Handle fixed/sticky elements
-      const fixedElements = this._getFixedElements();
-      const fixedOriginalStyles = this._hideFixedElements(fixedElements);
-
+      const fixedEls = this._getFixedElements();
+      const fixedStyles = this._hideFixedElements(fixedEls);
       const captures = [];
-      let currentY = 0;
-      let scrollCount = 0;
+      let curY = 0, count = 0;
 
       try {
         window.scrollTo(0, 0);
         await this._wait(scrollDelay);
 
-        while (currentY < pageHeight && scrollCount < maxScrolls) {
-          window.scrollTo(0, currentY);
+        while (curY < pageHeight && count < maxScrolls) {
+          window.scrollTo(0, curY);
           await this._wait(scrollDelay);
-
           this._triggerLazyLoad();
 
           const result = await this._captureViewport();
           if (result.error) throw new Error(result.error);
 
-          const capturedY = window.scrollY;
-          const remainingHeight = pageHeight - capturedY;
-          const captureHeight = Math.min(viewportHeight, remainingHeight);
-
-          captures.push({
-            dataUrl: result.dataUrl,
-            y: capturedY,
-            height: captureHeight,
-            viewportHeight: viewportHeight
-          });
-
-          currentY += viewportHeight;
-          scrollCount++;
-
-          if (capturedY + viewportHeight >= pageHeight) break;
+          captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, pageHeight - window.scrollY), viewportHeight: vpH });
+          curY += vpH;
+          count++;
+          if (window.scrollY + vpH >= pageHeight) break;
         }
       } finally {
-        this._restoreFixedElements(fixedElements, fixedOriginalStyles);
-        const cs = document.getElementById('pagesnap-capture-style');
-        if (cs) cs.remove();
-        window.scrollTo(originalScrollX, originalScrollY);
+        this._restoreFixedElements(fixedEls, fixedStyles);
+        document.getElementById('pagesnap-capture-style')?.remove();
+        window.scrollTo(origX, origY);
       }
 
       return await Stitch.stitchCaptures(captures, pageWidth, pageHeight, dpr);
@@ -171,164 +306,94 @@
 
     async captureRegion(x, y, width, height) {
       const dpr = window.devicePixelRatio || 1;
-      const viewportHeight = window.innerHeight;
-      const scrollDelay = 300;
-
-      const originalScrollX = window.scrollX;
-      const originalScrollY = window.scrollY;
+      const vpH = window.innerHeight;
+      const origX = window.scrollX, origY = window.scrollY;
 
       const styleEl = document.createElement('style');
       styleEl.id = 'pagesnap-capture-style';
-      styleEl.textContent = `
-        ::-webkit-scrollbar { display: none !important; }
-        * { scrollbar-width: none !important; }
-      `;
+      styleEl.textContent = '::-webkit-scrollbar{display:none!important}*{scrollbar-width:none!important}';
       document.head.appendChild(styleEl);
 
-      const fixedElements = this._getFixedElements();
-      const fixedOriginalStyles = this._hideFixedElements(fixedElements);
-
+      const fixedEls = this._getFixedElements();
+      const fixedStyles = this._hideFixedElements(fixedEls);
       const captures = [];
-      let currentY = y;
+      let curY = y;
 
       try {
-        while (currentY < y + height) {
-          window.scrollTo(x, currentY);
-          await this._wait(scrollDelay);
-
+        while (curY < y + height) {
+          window.scrollTo(x, curY);
+          await this._wait(300);
           const result = await this._captureViewport();
           if (result.error) throw new Error(result.error);
-
-          captures.push({
-            dataUrl: result.dataUrl,
-            y: window.scrollY,
-            height: Math.min(viewportHeight, (y + height) - window.scrollY),
-            viewportHeight: viewportHeight
-          });
-
-          currentY += viewportHeight;
-          if (window.scrollY + viewportHeight >= y + height) break;
+          captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, (y + height) - window.scrollY), viewportHeight: vpH });
+          curY += vpH;
+          if (window.scrollY + vpH >= y + height) break;
         }
       } finally {
-        this._restoreFixedElements(fixedElements, fixedOriginalStyles);
-        const cs = document.getElementById('pagesnap-capture-style');
-        if (cs) cs.remove();
-        window.scrollTo(originalScrollX, originalScrollY);
+        this._restoreFixedElements(fixedEls, fixedStyles);
+        document.getElementById('pagesnap-capture-style')?.remove();
+        window.scrollTo(origX, origY);
       }
 
-      const fullStitch = await Stitch.stitchCaptures(
-        captures,
-        window.innerWidth,
-        y + height - captures[0].y + viewportHeight,
-        dpr
-      );
-
-      return await this._cropDataUrl(
-        fullStitch,
-        x * dpr,
-        (captures[0] ? (y - captures[0].y) : 0) * dpr,
-        width * dpr,
-        height * dpr,
-        width,
-        height
-      );
+      const full = await Stitch.stitchCaptures(captures, window.innerWidth, y + height - captures[0].y + vpH, dpr);
+      return await this._cropDataUrl(full, x * dpr, (y - captures[0].y) * dpr, width * dpr, height * dpr, width, height);
     },
-
-    async captureScrollRange(startY, endY) {
-      const height = endY - startY;
-      return await this.captureRegion(0, startY, window.innerWidth, height);
-    },
-
-    // --- Private helpers ---
-
-    _lastCaptureTime: 0,
-    _minCaptureInterval: 550, // Chrome allows ~2 captures/sec, use 550ms to be safe
 
     async _captureViewport() {
-      // Throttle to avoid MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND
       const now = Date.now();
       const elapsed = now - this._lastCaptureTime;
-      if (elapsed < this._minCaptureInterval) {
-        await this._wait(this._minCaptureInterval - elapsed);
-      }
+      if (elapsed < this._minInterval) await this._wait(this._minInterval - elapsed);
 
-      const maxRetries = 3;
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         this._lastCaptureTime = Date.now();
-        const result = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, (response) => {
-            resolve(response || { error: 'No response from background script' });
-          });
+        const result = await new Promise(resolve => {
+          chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, r => resolve(r || { error: 'No response' }));
         });
-
-        if (result.error && result.error.includes('MAX_CAPTURE') && attempt < maxRetries - 1) {
-          // Back off and retry
+        if (result.error && result.error.includes('MAX_CAPTURE') && attempt < 2) {
           await this._wait(1000 * (attempt + 1));
           continue;
         }
-
         return result;
       }
-
-      return { error: 'Capture failed after retries (rate limited)' };
+      return { error: 'Capture rate limited' };
     },
 
-    _wait(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
-    },
+    _wait(ms) { return new Promise(r => setTimeout(r, ms)); },
 
     _getFixedElements() {
       const fixed = [];
-      // Limit scan to reduce performance impact on large DOMs
-      const all = document.querySelectorAll('header, nav, [class*="sticky"], [class*="fixed"], [style*="position: fixed"], [style*="position:fixed"], [style*="position: sticky"], [style*="position:sticky"]');
-      for (const el of all) {
+      const els = document.querySelectorAll('header, nav, [class*="sticky"], [class*="fixed"], [style*="position: fixed"], [style*="position:fixed"]');
+      for (const el of els) {
         try {
-          const style = window.getComputedStyle(el);
-          if (style.position === 'fixed' || style.position === 'sticky') {
-            fixed.push(el);
-          }
-        } catch (e) {
-          // skip
-        }
+          const s = window.getComputedStyle(el);
+          if (s.position === 'fixed' || s.position === 'sticky') fixed.push(el);
+        } catch (e) {}
       }
       return fixed;
     },
 
-    _hideFixedElements(elements) {
-      return elements.map(el => {
-        const original = { position: el.style.position };
-        el.style.position = 'absolute';
-        return original;
-      });
+    _hideFixedElements(els) {
+      return els.map(el => { const o = { position: el.style.position }; el.style.position = 'absolute'; return o; });
     },
 
-    _restoreFixedElements(elements, originalStyles) {
-      elements.forEach((el, i) => {
-        if (originalStyles[i]) {
-          el.style.position = originalStyles[i].position;
-        }
-      });
+    _restoreFixedElements(els, styles) {
+      els.forEach((el, i) => { if (styles[i]) el.style.position = styles[i].position; });
     },
 
     _triggerLazyLoad() {
-      const images = document.querySelectorAll('img[data-src], img[loading="lazy"]');
-      images.forEach(img => {
-        if (img.dataset.src && !img.src) {
-          img.src = img.dataset.src;
-        }
+      document.querySelectorAll('img[data-src], img[loading="lazy"]').forEach(img => {
+        if (img.dataset.src && !img.src) img.src = img.dataset.src;
       });
     },
 
     async _cropDataUrl(dataUrl, sx, sy, sw, sh, dw, dh) {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = dw;
-          canvas.height = dh;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
-          resolve(canvas.toDataURL('image/png'));
+          const c = document.createElement('canvas');
+          c.width = dw; c.height = dh;
+          c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+          resolve(c.toDataURL('image/png'));
         };
         img.src = dataUrl;
       });
@@ -341,68 +406,55 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'beginCapture') {
-      handleCapture(message.mode).then(sendResponse).catch(err => {
-        console.error('PageSnap capture error:', err);
+      handleCapture(message.mode, message.outputMode).then(sendResponse).catch(err => {
+        console.error('PageSnap error:', err);
         sendResponse({ error: err.message });
       });
       return true;
     }
   });
 
-  /**
-   * Main capture handler
-   */
-  async function handleCapture(mode) {
-    if (isCapturing) {
-      return { error: 'Capture already in progress' };
-    }
+  async function handleCapture(mode, outputMode) {
+    if (isCapturing) return { error: 'Capture already in progress' };
     captureMode = mode;
 
+    // Always extract content
+    extractedContent = Extractor.extract();
+
     switch (mode) {
-      case 'fullpage':
-        return await captureFullPage();
-      case 'visible':
-        return await captureVisible();
-      case 'zone':
-        return startZoneSelect();
-      case 'scrollrange':
-        return startScrollRange();
-      default:
-        return { error: 'Unknown capture mode: ' + mode };
+      case 'fullpage': return await doFullPageCapture();
+      case 'visible': return await doVisibleCapture();
+      case 'zone': return startZoneSelect();
+      case 'scrollrange': return startScrollRange();
+      case 'content': return openEditorWithContent(null, outputMode || 'summary');
+      case 'create': return openEditorWithContent(null, outputMode || 'quickquote');
+      default: return { error: 'Unknown mode: ' + mode };
     }
   }
 
-  /**
-   * Full page capture
-   */
-  async function captureFullPage() {
+  async function doFullPageCapture() {
     isCapturing = true;
-    showCaptureIndicator('Capturing full page...');
-
+    showIndicator('Capturing full page...');
     try {
       const dataUrl = await Capture.captureFullPage();
-      hideCaptureIndicator();
+      hideIndicator();
       isCapturing = false;
-      openEditor(dataUrl);
+      openEditorWithContent(dataUrl);
       return { success: true };
     } catch (err) {
-      hideCaptureIndicator();
+      hideIndicator();
       isCapturing = false;
       showNotification('Capture failed: ' + err.message, 'error');
       return { error: err.message };
     }
   }
 
-  /**
-   * Visible area capture
-   */
-  async function captureVisible() {
+  async function doVisibleCapture() {
     isCapturing = true;
-
     try {
       const dataUrl = await Capture.captureVisibleArea();
       isCapturing = false;
-      openEditor(dataUrl);
+      openEditorWithContent(dataUrl);
       return { success: true };
     } catch (err) {
       isCapturing = false;
@@ -411,408 +463,225 @@
     }
   }
 
-  /**
-   * Zone select - user draws a rectangle
-   */
   function startZoneSelect() {
-    if (zoneSelectOverlay) zoneSelectOverlay.remove();
-
-    zoneSelectOverlay = document.createElement('div');
-    zoneSelectOverlay.id = 'pagesnap-zone-overlay';
-    zoneSelectOverlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 2147483646;
-      cursor: crosshair;
-      background: rgba(0, 0, 0, 0.15);
-    `;
+    const overlay = document.createElement('div');
+    overlay.id = 'pagesnap-zone-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483646;cursor:crosshair;background:rgba(0,0,0,0.15);';
 
     const instructions = document.createElement('div');
-    instructions.style.cssText = `
-      position: fixed;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.8);
-      color: white;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
-      z-index: 2147483647;
-      pointer-events: none;
-    `;
+    instructions.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:white;padding:8px 16px;border-radius:8px;font-family:-apple-system,sans-serif;font-size:14px;z-index:2147483647;pointer-events:none;';
     instructions.textContent = 'Click and drag to select an area. Press Esc to cancel.';
 
-    const selectionRect = document.createElement('div');
-    selectionRect.style.cssText = `
-      position: fixed;
-      border: 2px dashed #4F46E5;
-      background: rgba(79, 70, 229, 0.1);
-      display: none;
-      z-index: 2147483647;
-      pointer-events: none;
-    `;
+    const selRect = document.createElement('div');
+    selRect.style.cssText = 'position:fixed;border:2px dashed #4F46E5;background:rgba(79,70,229,0.1);display:none;z-index:2147483647;pointer-events:none;';
 
-    zoneSelectOverlay.appendChild(instructions);
-    zoneSelectOverlay.appendChild(selectionRect);
-    document.body.appendChild(zoneSelectOverlay);
+    overlay.appendChild(instructions);
+    overlay.appendChild(selRect);
+    document.body.appendChild(overlay);
 
-    let startX, startY, isDragging = false;
+    let startX, startY, dragging = false;
 
-    const onMouseDown = (e) => {
-      startX = e.clientX;
-      startY = e.clientY;
-      isDragging = true;
-      selectionRect.style.display = 'block';
-      selectionRect.style.left = startX + 'px';
-      selectionRect.style.top = startY + 'px';
-      selectionRect.style.width = '0px';
-      selectionRect.style.height = '0px';
+    const onDown = (e) => { startX = e.clientX; startY = e.clientY; dragging = true; selRect.style.display = 'block'; };
+    const onMove = (e) => {
+      if (!dragging) return;
+      selRect.style.left = Math.min(startX, e.clientX) + 'px';
+      selRect.style.top = Math.min(startY, e.clientY) + 'px';
+      selRect.style.width = Math.abs(e.clientX - startX) + 'px';
+      selRect.style.height = Math.abs(e.clientY - startY) + 'px';
     };
-
-    const onMouseMove = (e) => {
-      if (!isDragging) return;
-      const x = Math.min(startX, e.clientX);
-      const y = Math.min(startY, e.clientY);
-      const w = Math.abs(e.clientX - startX);
-      const h = Math.abs(e.clientY - startY);
-      selectionRect.style.left = x + 'px';
-      selectionRect.style.top = y + 'px';
-      selectionRect.style.width = w + 'px';
-      selectionRect.style.height = h + 'px';
-    };
-
-    const onMouseUp = async (e) => {
-      if (!isDragging) return;
-      isDragging = false;
-
+    const onUp = async (e) => {
+      if (!dragging) return;
+      dragging = false;
       const x = Math.min(startX, e.clientX) + window.scrollX;
       const y = Math.min(startY, e.clientY) + window.scrollY;
       const w = Math.abs(e.clientX - startX);
       const h = Math.abs(e.clientY - startY);
-
       cleanup();
-
-      if (w < 10 || h < 10) {
-        showNotification('Selection too small. Please try again.', 'warning');
-        return;
-      }
-
+      if (w < 10 || h < 10) { showNotification('Selection too small.', 'warning'); return; }
       isCapturing = true;
-      showCaptureIndicator('Capturing selected area...');
-
+      showIndicator('Capturing area...');
       try {
         const dataUrl = await Capture.captureRegion(x, y, w, h);
-        hideCaptureIndicator();
+        hideIndicator();
         isCapturing = false;
-        openEditor(dataUrl);
+        openEditorWithContent(dataUrl);
       } catch (err) {
-        hideCaptureIndicator();
+        hideIndicator();
         isCapturing = false;
         showNotification('Capture failed: ' + err.message, 'error');
       }
     };
-
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') cleanup();
-    };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup(); };
 
     function cleanup() {
-      zoneSelectOverlay.removeEventListener('mousedown', onMouseDown);
-      zoneSelectOverlay.removeEventListener('mousemove', onMouseMove);
-      zoneSelectOverlay.removeEventListener('mouseup', onMouseUp);
-      document.removeEventListener('keydown', onKeyDown);
-      if (zoneSelectOverlay && zoneSelectOverlay.parentNode) {
-        zoneSelectOverlay.remove();
-      }
-      zoneSelectOverlay = null;
+      overlay.removeEventListener('mousedown', onDown);
+      overlay.removeEventListener('mousemove', onMove);
+      overlay.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
     }
 
-    zoneSelectOverlay.addEventListener('mousedown', onMouseDown);
-    zoneSelectOverlay.addEventListener('mousemove', onMouseMove);
-    zoneSelectOverlay.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('keydown', onKeyDown);
-
-    return { success: true, message: 'Zone select started' };
+    overlay.addEventListener('mousedown', onDown);
+    overlay.addEventListener('mousemove', onMove);
+    overlay.addEventListener('mouseup', onUp);
+    document.addEventListener('keydown', onKey);
+    return { success: true };
   }
 
-  /**
-   * Scroll range capture
-   */
   function startScrollRange() {
-    scrollRangeState = { startY: null, endY: null };
-
     const banner = document.createElement('div');
-    banner.id = 'pagesnap-scrollrange-banner';
-    banner.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      background: #4F46E5;
-      color: white;
-      padding: 12px 20px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
-      z-index: 2147483647;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    `;
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#4F46E5;color:white;padding:12px 20px;font-family:-apple-system,sans-serif;font-size:14px;z-index:2147483647;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
 
     const text = document.createElement('span');
-    text.textContent = 'Scroll to the START position, then click "Set Start"';
+    text.textContent = 'Scroll to START position, then click "Set Start"';
 
-    const btnContainer = document.createElement('div');
-    btnContainer.style.cssText = 'display: flex; gap: 8px;';
+    const btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:8px;';
 
     const btnStart = document.createElement('button');
     btnStart.textContent = 'Set Start';
-    btnStart.style.cssText = `
-      background: white;
-      color: #4F46E5;
-      border: none;
-      padding: 6px 16px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-    `;
+    btnStart.style.cssText = 'background:white;color:#4F46E5;border:none;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;';
 
     const btnCancel = document.createElement('button');
     btnCancel.textContent = 'Cancel';
-    btnCancel.style.cssText = `
-      background: rgba(255,255,255,0.2);
-      color: white;
-      border: 1px solid rgba(255,255,255,0.4);
-      padding: 6px 16px;
-      border-radius: 6px;
-      font-size: 13px;
-      cursor: pointer;
-    `;
+    btnCancel.style.cssText = 'background:rgba(255,255,255,0.2);color:white;border:1px solid rgba(255,255,255,0.4);padding:6px 16px;border-radius:6px;font-size:13px;cursor:pointer;';
 
-    btnContainer.appendChild(btnStart);
-    btnContainer.appendChild(btnCancel);
+    btns.appendChild(btnStart);
+    btns.appendChild(btnCancel);
     banner.appendChild(text);
-    banner.appendChild(btnContainer);
+    banner.appendChild(btns);
     document.body.appendChild(banner);
 
-    btnCancel.addEventListener('click', () => {
-      banner.remove();
-      scrollRangeState = null;
-    });
+    let startY = null;
+    btnCancel.addEventListener('click', () => banner.remove());
 
     btnStart.addEventListener('click', () => {
-      scrollRangeState.startY = window.scrollY;
-      text.textContent = `Start set at ${Math.round(scrollRangeState.startY)}px. Scroll to END position, then click "Set End"`;
+      startY = window.scrollY;
+      text.textContent = `Start: ${Math.round(startY)}px. Scroll to END, click "Set End"`;
       btnStart.textContent = 'Set End';
-
       const newBtn = btnStart.cloneNode(true);
       btnStart.replaceWith(newBtn);
-
       newBtn.addEventListener('click', async () => {
-        scrollRangeState.endY = window.scrollY + window.innerHeight;
+        const endY = window.scrollY + window.innerHeight;
         banner.remove();
-
-        if (scrollRangeState.endY <= scrollRangeState.startY) {
-          showNotification('End position must be below start position.', 'warning');
-          scrollRangeState = null;
-          return;
-        }
-
+        if (endY <= startY) { showNotification('End must be below start.', 'warning'); return; }
         isCapturing = true;
-        showCaptureIndicator('Capturing scroll range...');
-
+        showIndicator('Capturing range...');
         try {
-          const dataUrl = await Capture.captureScrollRange(
-            scrollRangeState.startY,
-            scrollRangeState.endY
-          );
-          hideCaptureIndicator();
+          const dataUrl = await Capture.captureRegion(0, startY, window.innerWidth, endY - startY);
+          hideIndicator();
           isCapturing = false;
-          openEditor(dataUrl);
+          openEditorWithContent(dataUrl);
         } catch (err) {
-          hideCaptureIndicator();
+          hideIndicator();
           isCapturing = false;
           showNotification('Capture failed: ' + err.message, 'error');
         }
-
-        scrollRangeState = null;
       });
     });
-
-    return { success: true, message: 'Scroll range mode started' };
+    return { success: true };
   }
 
   // =========================================================================
-  // Editor
+  // Editor + Output Panel
   // =========================================================================
 
-  function openEditor(dataUrl) {
+  function openEditorWithContent(screenshotDataUrl, initialOutputMode) {
     const existing = document.getElementById('pagesnap-editor-container');
     if (existing) existing.remove();
 
     const container = document.createElement('div');
     container.id = 'pagesnap-editor-container';
-    container.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 2147483647;
-      background: transparent;
-      pointer-events: none;
-    `;
+    container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;';
 
     const iframe = document.createElement('iframe');
-    iframe.id = 'pagesnap-editor-iframe';
     iframe.src = chrome.runtime.getURL('editor/editor.html');
-    iframe.style.cssText = `
-      position: fixed;
-      top: 0;
-      right: 0;
-      width: 100vw;
-      height: 100vh;
-      border: none;
-      z-index: 2147483647;
-      pointer-events: auto;
-      background: transparent;
-    `;
+    iframe.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;';
 
     iframe.onload = () => {
       iframe.contentWindow.postMessage({
-        type: 'pagesnap-load-image',
-        dataUrl: dataUrl,
+        type: 'pagesnap-load',
+        screenshot: screenshotDataUrl,
+        content: extractedContent,
         pageUrl: window.location.href,
-        pageTitle: document.title
+        pageTitle: document.title,
+        initialOutputMode: initialOutputMode || null
       }, '*');
     };
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    const messageHandler = (event) => {
-      if (event.data && event.data.type === 'pagesnap-editor-close') {
+    const onMessage = (e) => {
+      if (e.data?.type === 'pagesnap-editor-close') {
         container.remove();
-        window.removeEventListener('message', messageHandler);
-        document.removeEventListener('keydown', keyHandler);
+        window.removeEventListener('message', onMessage);
+        document.removeEventListener('keydown', onKey);
       }
     };
-    const keyHandler = (e) => {
+    const onKey = (e) => {
       if (e.key === 'Escape' && container.parentNode) {
         container.remove();
-        window.removeEventListener('message', messageHandler);
-        document.removeEventListener('keydown', keyHandler);
+        window.removeEventListener('message', onMessage);
+        document.removeEventListener('keydown', onKey);
       }
     };
-    window.addEventListener('message', messageHandler);
-    document.addEventListener('keydown', keyHandler);
+    window.addEventListener('message', onMessage);
+    document.addEventListener('keydown', onKey);
 
-    saveCaptureToHistory(dataUrl);
+    // Save to swipe file
+    saveToSwipeFile(screenshotDataUrl);
   }
 
-  function saveCaptureToHistory(dataUrl) {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const thumbWidth = 200;
-      const thumbHeight = Math.round(img.height * (thumbWidth / img.width));
-      canvas.width = thumbWidth;
-      canvas.height = thumbHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, thumbWidth, thumbHeight);
+  function saveToSwipeFile(screenshotDataUrl) {
+    if (!extractedContent) return;
 
+    let thumbnail = '';
+    if (screenshotDataUrl) {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        const tw = 200;
+        const th = Math.round(img.height * (tw / img.width));
+        c.width = tw; c.height = th;
+        c.getContext('2d').drawImage(img, 0, 0, tw, th);
+        thumbnail = c.toDataURL('image/jpeg', 0.5);
+
+        chrome.runtime.sendMessage({
+          action: 'swipefileSave',
+          item: { ...extractedContent, thumbnail, screenshot: thumbnail }
+        });
+      };
+      img.src = screenshotDataUrl;
+    } else {
       chrome.runtime.sendMessage({
-        action: 'saveToHistory',
-        capture: {
-          thumbnail: canvas.toDataURL('image/jpeg', 0.5),
-          url: window.location.href,
-          title: document.title,
-          mode: captureMode,
-          width: img.width,
-          height: img.height
-        }
+        action: 'swipefileSave',
+        item: { ...extractedContent }
       });
-    };
-    img.src = dataUrl;
-  }
-
-  // =========================================================================
-  // UI Indicators
-  // =========================================================================
-
-  function showCaptureIndicator(text) {
-    let indicator = document.getElementById('pagesnap-capture-indicator');
-    if (!indicator) {
-      indicator = document.createElement('div');
-      indicator.id = 'pagesnap-capture-indicator';
-      document.body.appendChild(indicator);
     }
-    indicator.style.cssText = `
-      position: fixed;
-      top: 16px;
-      right: 16px;
-      background: #4F46E5;
-      color: white;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
-      z-index: 2147483647;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
-    `;
-    indicator.innerHTML = `
-      <style>
-        @keyframes pagesnap-spin { to { transform: rotate(360deg); } }
-      </style>
-      <div style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:pagesnap-spin 0.8s linear infinite;"></div>
-      <span>${text}</span>
-    `;
   }
 
-  function hideCaptureIndicator() {
-    const indicator = document.getElementById('pagesnap-capture-indicator');
-    if (indicator) indicator.remove();
+  // =========================================================================
+  // UI Helpers
+  // =========================================================================
+
+  function showIndicator(text) {
+    let el = document.getElementById('pagesnap-indicator');
+    if (!el) { el = document.createElement('div'); el.id = 'pagesnap-indicator'; document.body.appendChild(el); }
+    el.style.cssText = 'position:fixed;top:16px;right:16px;background:#4F46E5;color:white;padding:10px 20px;border-radius:8px;font-family:-apple-system,sans-serif;font-size:14px;z-index:2147483647;display:flex;align-items:center;gap:8px;box-shadow:0 4px 12px rgba(79,70,229,0.4);';
+    el.innerHTML = `<style>@keyframes ps-spin{to{transform:rotate(360deg)}}</style><div style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:ps-spin 0.8s linear infinite;"></div><span>${text}</span>`;
+  }
+
+  function hideIndicator() {
+    document.getElementById('pagesnap-indicator')?.remove();
   }
 
   function showNotification(text, type = 'info') {
-    const colors = {
-      info: '#4F46E5',
-      error: '#DC2626',
-      warning: '#D97706',
-      success: '#059669'
-    };
-
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 16px;
-      right: 16px;
-      background: ${colors[type] || colors.info};
-      color: white;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
-      z-index: 2147483647;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      transition: opacity 0.3s;
-    `;
-    notification.textContent = text;
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-      notification.style.opacity = '0';
-      setTimeout(() => notification.remove(), 300);
-    }, 3000);
+    const colors = { info: '#4F46E5', error: '#DC2626', warning: '#D97706', success: '#059669' };
+    const el = document.createElement('div');
+    el.style.cssText = `position:fixed;top:16px;right:16px;background:${colors[type]||colors.info};color:white;padding:10px 20px;border-radius:8px;font-family:-apple-system,sans-serif;font-size:14px;z-index:2147483647;box-shadow:0 4px 12px rgba(0,0,0,0.2);transition:opacity 0.3s;`;
+    el.textContent = text;
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
   }
 })();

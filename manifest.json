@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "PageSnap",
-  "version": "1.0.0",
-  "description": "Capture the whole page. Share exactly what matters. Full-page screenshots with beautiful annotation tools.",
+  "version": "2.0.0",
+  "description": "Capture content. Repurpose it. Screenshot, social posts, blog ideas, shareable graphics — all from one click.",
   "permissions": [
     "activeTab",
     "downloads",
@@ -25,26 +25,27 @@
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [],
   "commands": {
     "capture-default": {
       "suggested_key": {
         "default": "Alt+Shift+S",
         "mac": "Alt+Shift+S"
       },
-      "description": "Trigger last-used capture mode"
+      "description": "Quick capture current page"
     }
   },
+  "options_page": "settings/settings.html",
   "web_accessible_resources": [
     {
       "resources": [
         "editor/editor.html",
         "editor/editor.css",
         "editor/editor.js",
-        "utils/capture.js",
-        "utils/stitch.js",
-        "utils/export.js",
         "utils/annotations.js",
+        "utils/social-graphics.js",
+        "settings/settings.html",
+        "settings/settings.css",
+        "settings/settings.js",
         "icons/*"
       ],
       "matches": ["<all_urls>"]

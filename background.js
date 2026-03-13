@@ -1,20 +1,24 @@
 /**
- * PageSnap - Background Service Worker
- * Handles capture commands, message routing, and download coordination.
+ * PageSnap v2 - Background Service Worker
+ * Handles capture commands, AI generation routing, downloads, and swipe file.
  */
+
+importScripts('utils/ai-service.js', 'utils/swipefile.js');
 
 // Default settings
 const DEFAULT_SETTINGS = {
+  apiKey: '',
   lastCaptureMode: 'fullpage',
   defaultFormat: 'png',
   jpgQuality: 0.8,
   filenamePattern: '{domain}_{timestamp}',
-  metadataStamp: false,
-  scrollDelay: 150,
-  darkMode: 'auto'
+  darkMode: 'auto',
+  defaultOutputMode: 'quickquote',
+  graphicStyle: 'modern-dark',
+  graphicRatio: '16:9'
 };
 
-// Initialize settings on install
+// Initialize on install
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('settings');
   if (!existing.settings) {
@@ -22,14 +26,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-// Handle keyboard shortcut command
+// Handle keyboard shortcut
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === 'capture-default') {
-    const { settings } = await chrome.storage.local.get('settings');
-    const mode = settings?.lastCaptureMode || 'fullpage';
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
-      await startCapture(tab, mode);
+      await injectAndCapture(tab, 'fullpage');
     }
   }
 });
@@ -40,83 +42,122 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.error('PageSnap error:', err);
     sendResponse({ error: err.message });
   });
-  return true; // Keep channel open for async response
+  return true;
 });
 
 async function handleMessage(message, sender) {
   switch (message.action) {
+    // --- Capture ---
     case 'startCapture':
       return await startCaptureFromPopup(message.mode);
 
     case 'captureVisibleTab':
       return await captureCurrentTab();
 
+    // --- AI Generation ---
+    case 'generateContent':
+      return await generateContent(message.content, message.outputMode, message.customPrompt);
+
+    // --- Downloads ---
     case 'downloadImage':
       return await downloadImage(message.dataUrl, message.filename, message.format);
 
+    // --- Settings ---
     case 'getSettings':
       return await getSettings();
 
     case 'updateSettings':
       return await updateSettings(message.settings);
 
+    // --- Swipe File ---
+    case 'swipefileSave':
+      return await PageSnapSwipeFile.save(message.item);
+
+    case 'swipefileGetAll':
+      return { items: await PageSnapSwipeFile.getAll() };
+
+    case 'swipefileGetById':
+      return { item: await PageSnapSwipeFile.getById(message.id) };
+
+    case 'swipefileUpdate':
+      return { item: await PageSnapSwipeFile.update(message.id, message.changes) };
+
+    case 'swipefileToggleFavorite':
+      return { item: await PageSnapSwipeFile.toggleFavorite(message.id) };
+
+    case 'swipefileAddOutput':
+      return { item: await PageSnapSwipeFile.addOutput(message.id, message.output) };
+
+    case 'swipefileRemove':
+      return { success: await PageSnapSwipeFile.remove(message.id) };
+
+    case 'swipefileSearch':
+      return { items: await PageSnapSwipeFile.search(message.query) };
+
+    case 'swipefileGetTags':
+      return { tags: await PageSnapSwipeFile.getAllTags() };
+
+    case 'swipefileGetFavorites':
+      return { items: await PageSnapSwipeFile.getFavorites() };
+
+    case 'swipefileClear':
+      return { success: await PageSnapSwipeFile.clear() };
+
+    case 'swipefileExport':
+      return { json: await PageSnapSwipeFile.exportJSON() };
+
+    // --- History (legacy compat) ---
     case 'saveToHistory':
-      return await saveToHistory(message.capture);
+      return { success: true };
 
     case 'getHistory':
-      return await getHistory();
+      const items = await PageSnapSwipeFile.getAll();
+      return { history: items.slice(0, 20) };
 
     case 'clearHistory':
-      return await clearHistory();
+      return { success: true };
 
     default:
       return { error: 'Unknown action: ' + message.action };
   }
 }
 
-/**
- * Start capture from popup - inject content script and begin
- */
+// --- Capture ---
+
 async function startCaptureFromPopup(mode) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) {
-    return { error: 'No active tab found' };
-  }
-  await startCapture(tab, mode);
-  // Save last used mode
+  if (!tab) return { error: 'No active tab found' };
+
+  await injectAndCapture(tab, mode);
+
   const { settings } = await chrome.storage.local.get('settings');
-  settings.lastCaptureMode = mode;
-  await chrome.storage.local.set({ settings });
+  if (settings) {
+    settings.lastCaptureMode = mode;
+    await chrome.storage.local.set({ settings });
+  }
+
   return { success: true };
 }
 
-/**
- * Inject content script and start capture on the given tab
- */
-async function startCapture(tab, mode) {
-  // Inject content script
+async function injectAndCapture(tab, mode) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['content.js']
     });
   } catch (err) {
-    // Content script may already be injected, or page doesn't allow it
     console.warn('Script injection note:', err.message);
   }
 
-  // Small delay to let content script initialize
   await new Promise(r => setTimeout(r, 100));
 
-  // Send capture command to content script
   try {
     await chrome.tabs.sendMessage(tab.id, {
       action: 'beginCapture',
       mode: mode
     });
   } catch (err) {
-    console.error('Failed to send capture command:', err);
-    // Fallback: try injecting and sending again
+    // Retry once
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['content.js']
@@ -129,9 +170,6 @@ async function startCapture(tab, mode) {
   }
 }
 
-/**
- * Capture the currently visible tab as a data URI
- */
 async function captureCurrentTab() {
   try {
     const dataUrl = await chrome.tabs.captureVisibleTab(null, {
@@ -144,9 +182,26 @@ async function captureCurrentTab() {
   }
 }
 
-/**
- * Download an image with the given filename and format
- */
+// --- AI Generation ---
+
+async function generateContent(content, outputMode, customPrompt) {
+  const { settings } = await chrome.storage.local.get('settings');
+  const apiKey = settings?.apiKey;
+
+  if (!apiKey) {
+    return { error: 'API key required. Open PageSnap settings to add your Claude API key.' };
+  }
+
+  try {
+    const result = await PageSnapAI.generate(apiKey, customPrompt || '', content, outputMode);
+    return { result };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+// --- Downloads ---
+
 async function downloadImage(dataUrl, filename, format) {
   try {
     const downloadId = await chrome.downloads.download({
@@ -160,72 +215,22 @@ async function downloadImage(dataUrl, filename, format) {
   }
 }
 
-/**
- * Generate a default filename based on pattern
- */
 function generateFilename(format) {
   const now = new Date();
-  const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  return `pagesnap_${timestamp}.${format}`;
+  const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return `pagesnap_${ts}.${format}`;
 }
 
-/**
- * Get extension settings
- */
+// --- Settings ---
+
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   return { settings: settings || DEFAULT_SETTINGS };
 }
 
-/**
- * Update extension settings
- */
 async function updateSettings(newSettings) {
   const { settings } = await chrome.storage.local.get('settings');
-  const merged = { ...settings, ...newSettings };
+  const merged = { ...(settings || DEFAULT_SETTINGS), ...newSettings };
   await chrome.storage.local.set({ settings: merged });
   return { settings: merged };
-}
-
-/**
- * Save a capture to local history (max 20)
- */
-async function saveToHistory(capture) {
-  const { captureHistory } = await chrome.storage.local.get('captureHistory');
-  const history = captureHistory || [];
-
-  history.unshift({
-    id: Date.now(),
-    timestamp: new Date().toISOString(),
-    thumbnail: capture.thumbnail,
-    url: capture.url,
-    title: capture.title,
-    mode: capture.mode,
-    width: capture.width,
-    height: capture.height
-  });
-
-  // Keep only last 20
-  if (history.length > 20) {
-    history.length = 20;
-  }
-
-  await chrome.storage.local.set({ captureHistory: history });
-  return { success: true };
-}
-
-/**
- * Get capture history
- */
-async function getHistory() {
-  const { captureHistory } = await chrome.storage.local.get('captureHistory');
-  return { history: captureHistory || [] };
-}
-
-/**
- * Clear capture history
- */
-async function clearHistory() {
-  await chrome.storage.local.remove('captureHistory');
-  return { success: true };
 }
