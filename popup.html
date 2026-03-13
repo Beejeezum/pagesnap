@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageSnap</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="logo">
+        <img src="icons/icon48.png" alt="PageSnap" width="24" height="24">
+        <h1>PageSnap</h1>
+      </div>
+      <span class="version">v1.0</span>
+    </header>
+
+    <section class="capture-modes">
+      <button class="capture-btn primary" data-mode="fullpage" title="Capture entire page (Alt+Shift+S)">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="2" width="14" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="3" y1="6" x2="17" y2="6" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" opacity="0.5"/>
+          <line x1="3" y1="14" x2="17" y2="14" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" opacity="0.5"/>
+        </svg>
+        <span>Full Page</span>
+      </button>
+
+      <button class="capture-btn" data-mode="visible" title="Capture visible area only">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="4" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+        <span>Visible Area</span>
+      </button>
+
+      <button class="capture-btn" data-mode="zone" title="Select a region to capture">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M3 7V4a1 1 0 011-1h3M13 3h3a1 1 0 011 1v3M17 13v3a1 1 0 01-1 1h-3M7 17H4a1 1 0 01-1-1v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <rect x="6" y="6" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" opacity="0.6"/>
+        </svg>
+        <span>Zone Select</span>
+      </button>
+
+      <button class="capture-btn" data-mode="scrollrange" title="Capture between two scroll positions">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="5" y="2" width="10" height="16" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="7" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="7" y1="14" x2="13" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M10 8v4M8 10l2 2 2-2" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+        </svg>
+        <span>Scroll Range</span>
+      </button>
+    </section>
+
+    <section class="recent-section" id="recentSection" style="display:none;">
+      <div class="section-header">
+        <h2>Recent Captures</h2>
+        <button class="text-btn" id="clearHistory">Clear</button>
+      </div>
+      <div class="recent-grid" id="recentGrid"></div>
+    </section>
+
+    <footer class="footer">
+      <span class="shortcut-hint">Alt+Shift+S for quick capture</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

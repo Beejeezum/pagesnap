@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageSnap Editor</title>
+  <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+  <div id="editor-app">
+    <!-- Top toolbar -->
+    <div class="editor-toolbar" id="toolbar">
+      <div class="toolbar-left">
+        <span class="toolbar-title">PageSnap Editor</span>
+      </div>
+      <div class="toolbar-center">
+        <!-- Tool buttons -->
+        <div class="tool-group">
+          <button class="tool-btn active" data-tool="select" title="Select (V)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M4 2l10 7-5 1-2 5L4 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="tool-btn" data-tool="crop" title="Crop (C)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M5 2v11h11M2 5h11v11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="tool-divider"></div>
+        <div class="tool-group">
+          <button class="tool-btn" data-tool="arrow" title="Arrow (A)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M4 14L14 4M14 4H8M14 4v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="tool-btn" data-tool="line" title="Line (L)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <line x1="3" y1="15" x2="15" y2="3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="tool-btn" data-tool="rectangle" title="Rectangle (R)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <rect x="3" y="4" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
+          <button class="tool-btn" data-tool="text" title="Text (T)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M5 4h8M9 4v10M6 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="tool-divider"></div>
+        <div class="tool-group">
+          <button class="tool-btn" data-tool="highlight" title="Highlight (H)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <rect x="3" y="6" width="12" height="6" rx="1" fill="currentColor" opacity="0.3"/>
+              <rect x="3" y="6" width="12" height="6" rx="1" stroke="currentColor" stroke-width="1"/>
+            </svg>
+          </button>
+          <button class="tool-btn" data-tool="blur" title="Blur / Redact (B)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <rect x="3" y="4" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="5" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+              <line x1="5" y1="9" x2="13" y2="9" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+              <line x1="5" y1="11" x2="13" y2="11" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+            </svg>
+          </button>
+          <button class="tool-btn" data-tool="freehand" title="Freehand Draw (D)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M3 13c2-4 4-2 6-6s2-4 6-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <button class="action-btn" id="undoBtn" title="Undo (Ctrl+Z)" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 6h7a3 3 0 110 6H8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M6 3L3 6l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="action-btn" id="redoBtn" title="Redo (Ctrl+Shift+Z)" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M13 6H6a3 3 0 100 6h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M10 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="tool-divider"></div>
+        <button class="action-btn close-btn" id="closeBtn" title="Close Editor (Esc)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tool options bar -->
+    <div class="tool-options" id="toolOptions">
+      <div class="option-group" id="colorPicker">
+        <label>Color</label>
+        <div class="color-swatches">
+          <button class="color-swatch active" data-color="#FF0000" style="background:#FF0000" title="Red"></button>
+          <button class="color-swatch" data-color="#FF6B00" style="background:#FF6B00" title="Orange"></button>
+          <button class="color-swatch" data-color="#FFCC00" style="background:#FFCC00" title="Yellow"></button>
+          <button class="color-swatch" data-color="#00CC66" style="background:#00CC66" title="Green"></button>
+          <button class="color-swatch" data-color="#0099FF" style="background:#0099FF" title="Blue"></button>
+          <button class="color-swatch" data-color="#7C3AED" style="background:#7C3AED" title="Purple"></button>
+          <button class="color-swatch" data-color="#FFFFFF" style="background:#FFFFFF" title="White"></button>
+          <button class="color-swatch" data-color="#000000" style="background:#000000" title="Black"></button>
+        </div>
+        <input type="color" id="customColor" class="custom-color" value="#FF0000" title="Custom color">
+      </div>
+      <div class="option-group" id="lineWidthGroup">
+        <label>Width</label>
+        <input type="range" id="lineWidth" min="1" max="10" value="2" class="slider">
+        <span id="lineWidthValue">2</span>
+      </div>
+      <div class="option-group" id="fontSizeGroup" style="display:none">
+        <label>Size</label>
+        <input type="range" id="fontSize" min="12" max="48" value="16" class="slider">
+        <span id="fontSizeValue">16</span>
+      </div>
+      <div class="option-group" id="opacityGroup" style="display:none">
+        <label>Opacity</label>
+        <input type="range" id="opacity" min="10" max="100" value="30" class="slider">
+        <span id="opacityValue">30%</span>
+      </div>
+      <div class="option-group" id="filledGroup" style="display:none">
+        <label>
+          <input type="checkbox" id="filledCheck"> Filled
+        </label>
+      </div>
+    </div>
+
+    <!-- Canvas area -->
+    <div class="canvas-container" id="canvasContainer">
+      <canvas id="imageCanvas"></canvas>
+      <canvas id="annotationCanvas"></canvas>
+      <div class="crop-overlay" id="cropOverlay" style="display:none">
+        <div class="crop-region" id="cropRegion">
+          <div class="crop-handle nw" data-handle="nw"></div>
+          <div class="crop-handle ne" data-handle="ne"></div>
+          <div class="crop-handle sw" data-handle="sw"></div>
+          <div class="crop-handle se" data-handle="se"></div>
+          <div class="crop-handle n" data-handle="n"></div>
+          <div class="crop-handle s" data-handle="s"></div>
+          <div class="crop-handle e" data-handle="e"></div>
+          <div class="crop-handle w" data-handle="w"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom export bar -->
+    <div class="export-bar" id="exportBar">
+      <div class="export-left">
+        <span class="image-info" id="imageInfo">--</span>
+      </div>
+      <div class="export-right">
+        <button class="export-btn secondary" id="copyBtn" title="Copy to Clipboard">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <rect x="4" y="4" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M10 4V3a1 1 0 00-1-1H3a1 1 0 00-1 1v6a1 1 0 001 1h1" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+          Copy
+        </button>
+        <button class="export-btn secondary" id="pdfBtn" title="Download as PDF">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M3 2h5l3 3v7a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/>
+            <path d="M8 2v3h3" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+          PDF
+        </button>
+        <button class="export-btn secondary" id="jpgBtn" title="Download as JPG">JPG</button>
+        <button class="export-btn primary" id="pngBtn" title="Download as PNG">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 2v7M4 6l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 10v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          PNG
+        </button>
+      </div>
+    </div>
+
+    <!-- Text input overlay (for text annotation) -->
+    <textarea id="textInput" class="text-input" style="display:none" placeholder="Type here..."></textarea>
+  </div>
+
+  <!-- Load utilities -->
+  <script src="../utils/annotations.js"></script>
+  <script src="../utils/export.js"></script>
+  <script src="editor.js"></script>
+</body>
+</html>

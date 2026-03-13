@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "PageSnap",
+  "version": "1.0.0",
+  "description": "Capture the whole page. Share exactly what matters. Full-page screenshots with beautiful annotation tools.",
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "storage",
+    "scripting"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [],
+  "commands": {
+    "capture-default": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Alt+Shift+S"
+      },
+      "description": "Trigger last-used capture mode"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "editor/editor.html",
+        "editor/editor.css",
+        "editor/editor.js",
+        "utils/capture.js",
+        "utils/stitch.js",
+        "utils/export.js",
+        "utils/annotations.js",
+        "icons/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
