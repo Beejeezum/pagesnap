@@ -89,7 +89,7 @@
 
   const Capture = {
     async captureFullPage(options = {}) {
-      const scrollDelay = options.scrollDelay || 150;
+      const scrollDelay = options.scrollDelay || 300;
       const maxScrolls = options.maxScrolls || 100;
 
       const originalScrollX = window.scrollX;
@@ -133,7 +133,6 @@
           await this._wait(scrollDelay);
 
           this._triggerLazyLoad();
-          await this._wait(50);
 
           const result = await this._captureViewport();
           if (result.error) throw new Error(result.error);
@@ -173,7 +172,7 @@
     async captureRegion(x, y, width, height) {
       const dpr = window.devicePixelRatio || 1;
       const viewportHeight = window.innerHeight;
-      const scrollDelay = 150;
+      const scrollDelay = 300;
 
       const originalScrollX = window.scrollX;
       const originalScrollY = window.scrollY;
@@ -242,12 +241,36 @@
 
     // --- Private helpers ---
 
+    _lastCaptureTime: 0,
+    _minCaptureInterval: 550, // Chrome allows ~2 captures/sec, use 550ms to be safe
+
     async _captureViewport() {
-      return new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, (response) => {
-          resolve(response || { error: 'No response from background script' });
+      // Throttle to avoid MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND
+      const now = Date.now();
+      const elapsed = now - this._lastCaptureTime;
+      if (elapsed < this._minCaptureInterval) {
+        await this._wait(this._minCaptureInterval - elapsed);
+      }
+
+      const maxRetries = 3;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        this._lastCaptureTime = Date.now();
+        const result = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, (response) => {
+            resolve(response || { error: 'No response from background script' });
+          });
         });
-      });
+
+        if (result.error && result.error.includes('MAX_CAPTURE') && attempt < maxRetries - 1) {
+          // Back off and retry
+          await this._wait(1000 * (attempt + 1));
+          continue;
+        }
+
+        return result;
+      }
+
+      return { error: 'Capture failed after retries (rate limited)' };
     },
 
     _wait(ms) {
