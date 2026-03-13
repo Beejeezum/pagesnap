@@ -1,7 +1,7 @@
 /**
  * PageSnap - Content Script
  * Controls scroll capture loop, zone-select overlay, and editor panel mounting.
- * Injected into the active tab when a capture is initiated.
+ * All capture/stitch logic is inlined to avoid CSP issues on strict sites.
  */
 
 (function() {
@@ -15,7 +15,307 @@
   let scrollRangeState = null;
   let isCapturing = false;
 
-  // Listen for messages from background script
+  // =========================================================================
+  // Inline Stitch Logic (avoids CSP script injection issues)
+  // =========================================================================
+
+  const Stitch = {
+    async stitchCaptures(captures, pageWidth, pageHeight, dpr) {
+      if (captures.length === 0) throw new Error('No captures to stitch');
+
+      if (captures.length === 1) {
+        return await this._cropSingleCapture(captures[0], pageWidth, pageHeight, dpr);
+      }
+
+      const images = await Promise.all(captures.map(c => this._loadImage(c.dataUrl)));
+
+      const outputWidth = Math.round(pageWidth * dpr);
+      const outputHeight = Math.min(Math.round(pageHeight * dpr), 32767);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+      const ctx = canvas.getContext('2d');
+
+      for (let i = 0; i < captures.length; i++) {
+        const capture = captures[i];
+        const img = images[i];
+        const drawY = Math.round(capture.y * dpr);
+
+        if (i === captures.length - 1) {
+          const remainingPixels = Math.round(pageHeight * dpr) - drawY;
+          if (remainingPixels < img.height) {
+            const srcY = img.height - remainingPixels;
+            ctx.drawImage(img, 0, srcY, img.width, remainingPixels, 0, drawY, img.width, remainingPixels);
+            continue;
+          }
+        }
+        ctx.drawImage(img, 0, drawY);
+      }
+
+      return canvas.toDataURL('image/png');
+    },
+
+    async _cropSingleCapture(capture, pageWidth, pageHeight, dpr) {
+      const img = await this._loadImage(capture.dataUrl);
+      const targetH = Math.round(pageHeight * dpr);
+      const targetW = Math.round(pageWidth * dpr);
+
+      if (img.height >= targetH && img.width >= targetW) {
+        if (img.height === targetH && img.width === targetW) return capture.dataUrl;
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, targetW, targetH, 0, 0, targetW, targetH);
+        return canvas.toDataURL('image/png');
+      }
+      return capture.dataUrl;
+    },
+
+    _loadImage(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Failed to load capture image'));
+        img.src = dataUrl;
+      });
+    }
+  };
+
+  // =========================================================================
+  // Inline Capture Logic
+  // =========================================================================
+
+  const Capture = {
+    async captureFullPage(options = {}) {
+      const scrollDelay = options.scrollDelay || 150;
+      const maxScrolls = options.maxScrolls || 100;
+
+      const originalScrollX = window.scrollX;
+      const originalScrollY = window.scrollY;
+
+      const pageWidth = Math.max(
+        document.documentElement.scrollWidth,
+        document.body.scrollWidth || 0
+      );
+      const pageHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight || 0
+      );
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+
+      // Hide scrollbars
+      const styleEl = document.createElement('style');
+      styleEl.id = 'pagesnap-capture-style';
+      styleEl.textContent = `
+        ::-webkit-scrollbar { display: none !important; }
+        * { scrollbar-width: none !important; }
+      `;
+      document.head.appendChild(styleEl);
+
+      // Handle fixed/sticky elements
+      const fixedElements = this._getFixedElements();
+      const fixedOriginalStyles = this._hideFixedElements(fixedElements);
+
+      const captures = [];
+      let currentY = 0;
+      let scrollCount = 0;
+
+      try {
+        window.scrollTo(0, 0);
+        await this._wait(scrollDelay);
+
+        while (currentY < pageHeight && scrollCount < maxScrolls) {
+          window.scrollTo(0, currentY);
+          await this._wait(scrollDelay);
+
+          this._triggerLazyLoad();
+          await this._wait(50);
+
+          const result = await this._captureViewport();
+          if (result.error) throw new Error(result.error);
+
+          const capturedY = window.scrollY;
+          const remainingHeight = pageHeight - capturedY;
+          const captureHeight = Math.min(viewportHeight, remainingHeight);
+
+          captures.push({
+            dataUrl: result.dataUrl,
+            y: capturedY,
+            height: captureHeight,
+            viewportHeight: viewportHeight
+          });
+
+          currentY += viewportHeight;
+          scrollCount++;
+
+          if (capturedY + viewportHeight >= pageHeight) break;
+        }
+      } finally {
+        this._restoreFixedElements(fixedElements, fixedOriginalStyles);
+        const cs = document.getElementById('pagesnap-capture-style');
+        if (cs) cs.remove();
+        window.scrollTo(originalScrollX, originalScrollY);
+      }
+
+      return await Stitch.stitchCaptures(captures, pageWidth, pageHeight, dpr);
+    },
+
+    async captureVisibleArea() {
+      const result = await this._captureViewport();
+      if (result.error) throw new Error(result.error);
+      return result.dataUrl;
+    },
+
+    async captureRegion(x, y, width, height) {
+      const dpr = window.devicePixelRatio || 1;
+      const viewportHeight = window.innerHeight;
+      const scrollDelay = 150;
+
+      const originalScrollX = window.scrollX;
+      const originalScrollY = window.scrollY;
+
+      const styleEl = document.createElement('style');
+      styleEl.id = 'pagesnap-capture-style';
+      styleEl.textContent = `
+        ::-webkit-scrollbar { display: none !important; }
+        * { scrollbar-width: none !important; }
+      `;
+      document.head.appendChild(styleEl);
+
+      const fixedElements = this._getFixedElements();
+      const fixedOriginalStyles = this._hideFixedElements(fixedElements);
+
+      const captures = [];
+      let currentY = y;
+
+      try {
+        while (currentY < y + height) {
+          window.scrollTo(x, currentY);
+          await this._wait(scrollDelay);
+
+          const result = await this._captureViewport();
+          if (result.error) throw new Error(result.error);
+
+          captures.push({
+            dataUrl: result.dataUrl,
+            y: window.scrollY,
+            height: Math.min(viewportHeight, (y + height) - window.scrollY),
+            viewportHeight: viewportHeight
+          });
+
+          currentY += viewportHeight;
+          if (window.scrollY + viewportHeight >= y + height) break;
+        }
+      } finally {
+        this._restoreFixedElements(fixedElements, fixedOriginalStyles);
+        const cs = document.getElementById('pagesnap-capture-style');
+        if (cs) cs.remove();
+        window.scrollTo(originalScrollX, originalScrollY);
+      }
+
+      const fullStitch = await Stitch.stitchCaptures(
+        captures,
+        window.innerWidth,
+        y + height - captures[0].y + viewportHeight,
+        dpr
+      );
+
+      return await this._cropDataUrl(
+        fullStitch,
+        x * dpr,
+        (captures[0] ? (y - captures[0].y) : 0) * dpr,
+        width * dpr,
+        height * dpr,
+        width,
+        height
+      );
+    },
+
+    async captureScrollRange(startY, endY) {
+      const height = endY - startY;
+      return await this.captureRegion(0, startY, window.innerWidth, height);
+    },
+
+    // --- Private helpers ---
+
+    async _captureViewport() {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, (response) => {
+          resolve(response || { error: 'No response from background script' });
+        });
+      });
+    },
+
+    _wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    },
+
+    _getFixedElements() {
+      const fixed = [];
+      // Limit scan to reduce performance impact on large DOMs
+      const all = document.querySelectorAll('header, nav, [class*="sticky"], [class*="fixed"], [style*="position: fixed"], [style*="position:fixed"], [style*="position: sticky"], [style*="position:sticky"]');
+      for (const el of all) {
+        try {
+          const style = window.getComputedStyle(el);
+          if (style.position === 'fixed' || style.position === 'sticky') {
+            fixed.push(el);
+          }
+        } catch (e) {
+          // skip
+        }
+      }
+      return fixed;
+    },
+
+    _hideFixedElements(elements) {
+      return elements.map(el => {
+        const original = { position: el.style.position };
+        el.style.position = 'absolute';
+        return original;
+      });
+    },
+
+    _restoreFixedElements(elements, originalStyles) {
+      elements.forEach((el, i) => {
+        if (originalStyles[i]) {
+          el.style.position = originalStyles[i].position;
+        }
+      });
+    },
+
+    _triggerLazyLoad() {
+      const images = document.querySelectorAll('img[data-src], img[loading="lazy"]');
+      images.forEach(img => {
+        if (img.dataset.src && !img.src) {
+          img.src = img.dataset.src;
+        }
+      });
+    },
+
+    async _cropDataUrl(dataUrl, sx, sy, sw, sh, dw, dh) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = dw;
+          canvas.height = dh;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.src = dataUrl;
+      });
+    }
+  };
+
+  // =========================================================================
+  // Message Listener
+  // =========================================================================
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'beginCapture') {
       handleCapture(message.mode).then(sendResponse).catch(err => {
@@ -27,13 +327,12 @@
   });
 
   /**
-   * Main capture handler - routes to the appropriate capture mode
+   * Main capture handler
    */
   async function handleCapture(mode) {
     if (isCapturing) {
       return { error: 'Capture already in progress' };
     }
-
     captureMode = mode;
 
     switch (mode) {
@@ -51,20 +350,16 @@
   }
 
   /**
-   * Full page capture - scroll and stitch
+   * Full page capture
    */
   async function captureFullPage() {
     isCapturing = true;
     showCaptureIndicator('Capturing full page...');
 
     try {
-      // Load utilities if not already loaded
-      await loadUtilScripts();
-
-      const dataUrl = await PageSnapCapture.captureFullPage();
+      const dataUrl = await Capture.captureFullPage();
       hideCaptureIndicator();
       isCapturing = false;
-
       openEditor(dataUrl);
       return { success: true };
     } catch (err) {
@@ -76,17 +371,14 @@
   }
 
   /**
-   * Visible area capture - single viewport
+   * Visible area capture
    */
   async function captureVisible() {
     isCapturing = true;
 
     try {
-      await loadUtilScripts();
-
-      const dataUrl = await PageSnapCapture.captureVisibleArea();
+      const dataUrl = await Capture.captureVisibleArea();
       isCapturing = false;
-
       openEditor(dataUrl);
       return { success: true };
     } catch (err) {
@@ -97,12 +389,10 @@
   }
 
   /**
-   * Zone select - let user draw a rectangle
+   * Zone select - user draws a rectangle
    */
   function startZoneSelect() {
-    if (zoneSelectOverlay) {
-      zoneSelectOverlay.remove();
-    }
+    if (zoneSelectOverlay) zoneSelectOverlay.remove();
 
     zoneSelectOverlay = document.createElement('div');
     zoneSelectOverlay.id = 'pagesnap-zone-overlay';
@@ -193,8 +483,7 @@
       showCaptureIndicator('Capturing selected area...');
 
       try {
-        await loadUtilScripts();
-        const dataUrl = await PageSnapCapture.captureRegion(x, y, w, h);
+        const dataUrl = await Capture.captureRegion(x, y, w, h);
         hideCaptureIndicator();
         isCapturing = false;
         openEditor(dataUrl);
@@ -206,9 +495,7 @@
     };
 
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        cleanup();
-      }
+      if (e.key === 'Escape') cleanup();
     };
 
     function cleanup() {
@@ -216,7 +503,7 @@
       zoneSelectOverlay.removeEventListener('mousemove', onMouseMove);
       zoneSelectOverlay.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('keydown', onKeyDown);
-      if (zoneSelectOverlay.parentNode) {
+      if (zoneSelectOverlay && zoneSelectOverlay.parentNode) {
         zoneSelectOverlay.remove();
       }
       zoneSelectOverlay = null;
@@ -231,7 +518,7 @@
   }
 
   /**
-   * Scroll range capture - user sets start and end points
+   * Scroll range capture
    */
   function startScrollRange() {
     scrollRangeState = { startY: null, endY: null };
@@ -302,7 +589,6 @@
       text.textContent = `Start set at ${Math.round(scrollRangeState.startY)}px. Scroll to END position, then click "Set End"`;
       btnStart.textContent = 'Set End';
 
-      // Replace click handler
       const newBtn = btnStart.cloneNode(true);
       btnStart.replaceWith(newBtn);
 
@@ -320,8 +606,7 @@
         showCaptureIndicator('Capturing scroll range...');
 
         try {
-          await loadUtilScripts();
-          const dataUrl = await PageSnapCapture.captureScrollRange(
+          const dataUrl = await Capture.captureScrollRange(
             scrollRangeState.startY,
             scrollRangeState.endY
           );
@@ -341,43 +626,14 @@
     return { success: true, message: 'Scroll range mode started' };
   }
 
-  // --- Utility script loading ---
-
-  async function loadUtilScripts() {
-    if (typeof PageSnapCapture !== 'undefined' && typeof PageSnapStitch !== 'undefined') {
-      return;
-    }
-
-    const scripts = ['utils/stitch.js', 'utils/capture.js', 'utils/export.js', 'utils/annotations.js'];
-    for (const src of scripts) {
-      await injectScript(chrome.runtime.getURL(src));
-    }
-  }
-
-  function injectScript(url) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = url;
-      script.onload = () => {
-        script.remove();
-        resolve();
-      };
-      script.onerror = () => {
-        script.remove();
-        reject(new Error('Failed to load: ' + url));
-      };
-      (document.head || document.documentElement).appendChild(script);
-    });
-  }
-
-  // --- Editor ---
+  // =========================================================================
+  // Editor
+  // =========================================================================
 
   function openEditor(dataUrl) {
-    // Remove existing editor if any
     const existing = document.getElementById('pagesnap-editor-container');
     if (existing) existing.remove();
 
-    // Create editor container
     const container = document.createElement('div');
     container.id = 'pagesnap-editor-container';
     container.style.cssText = `
@@ -391,7 +647,6 @@
       pointer-events: none;
     `;
 
-    // Create iframe for editor (isolated from page styles)
     const iframe = document.createElement('iframe');
     iframe.id = 'pagesnap-editor-iframe';
     iframe.src = chrome.runtime.getURL('editor/editor.html');
@@ -408,7 +663,6 @@
     `;
 
     iframe.onload = () => {
-      // Pass the captured image to the editor
       iframe.contentWindow.postMessage({
         type: 'pagesnap-load-image',
         dataUrl: dataUrl,
@@ -420,16 +674,13 @@
     container.appendChild(iframe);
     document.body.appendChild(container);
 
-    // Listen for editor close message
     const messageHandler = (event) => {
       if (event.data && event.data.type === 'pagesnap-editor-close') {
         container.remove();
         window.removeEventListener('message', messageHandler);
+        document.removeEventListener('keydown', keyHandler);
       }
     };
-    window.addEventListener('message', messageHandler);
-
-    // ESC key closes editor
     const keyHandler = (e) => {
       if (e.key === 'Escape' && container.parentNode) {
         container.remove();
@@ -437,14 +688,13 @@
         document.removeEventListener('keydown', keyHandler);
       }
     };
+    window.addEventListener('message', messageHandler);
     document.addEventListener('keydown', keyHandler);
 
-    // Save to history
     saveCaptureToHistory(dataUrl);
   }
 
   function saveCaptureToHistory(dataUrl) {
-    // Create thumbnail
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
@@ -470,47 +720,36 @@
     img.src = dataUrl;
   }
 
-  // --- UI Indicators ---
+  // =========================================================================
+  // UI Indicators
+  // =========================================================================
 
   function showCaptureIndicator(text) {
     let indicator = document.getElementById('pagesnap-capture-indicator');
     if (!indicator) {
       indicator = document.createElement('div');
       indicator.id = 'pagesnap-capture-indicator';
-      indicator.style.cssText = `
-        position: fixed;
-        top: 16px;
-        right: 16px;
-        background: #4F46E5;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 14px;
-        z-index: 2147483647;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
-        animation: pagesnap-pulse 1.5s ease-in-out infinite;
-      `;
-
-      const style = document.createElement('style');
-      style.textContent = `
-        @keyframes pagesnap-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.7; }
-        }
-      `;
-      indicator.appendChild(style);
       document.body.appendChild(indicator);
     }
-
-    // Spinner + text
+    indicator.style.cssText = `
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: #4F46E5;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+    `;
     indicator.innerHTML = `
       <style>
         @keyframes pagesnap-spin { to { transform: rotate(360deg); } }
-        @keyframes pagesnap-pulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
       </style>
       <div style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:pagesnap-spin 0.8s linear infinite;"></div>
       <span>${text}</span>
