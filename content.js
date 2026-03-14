@@ -594,32 +594,39 @@
     const existing = document.getElementById('pagesnap-editor-container');
     if (existing) existing.remove();
 
+    // Generate a one-time nonce for secure postMessage authentication
+    // The editor iframe reads this from location.hash and validates it on every message
+    const nonce = crypto.randomUUID();
+
     const container = document.createElement('div');
     container.id = 'pagesnap-editor-container';
     container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;';
 
     const iframe = document.createElement('iframe');
-    iframe.src = chrome.runtime.getURL('editor/editor.html');
+    iframe.src = chrome.runtime.getURL('editor/editor.html') + '#' + nonce;
     iframe.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;';
 
     iframe.onload = () => {
+      // Must use '*' as target origin because content script runs in the page's
+      // browsing context (e.g. https://example.com) while the iframe is
+      // chrome-extension://. The nonce authenticates the message instead.
       iframe.contentWindow.postMessage({
         type: 'pagesnap-load',
+        nonce: nonce,
         screenshot: screenshotDataUrl,
         content: extractedContent,
         pageUrl: window.location.href,
         pageTitle: document.title,
         initialOutputMode: initialOutputMode || null
-      }, EXTENSION_ORIGIN);
+      }, '*');
     };
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
     const onMessage = (e) => {
-      // Validate origin: only accept messages from our extension
-      if (e.origin !== EXTENSION_ORIGIN) return;
-      if (e.data?.type === 'pagesnap-editor-close') {
+      // Validate: must include our nonce to prove it came from our editor iframe
+      if (e.data?.type === 'pagesnap-editor-close' && e.data?.nonce === nonce) {
         container.remove();
         window.removeEventListener('message', onMessage);
         document.removeEventListener('keydown', onKey);

@@ -84,7 +84,7 @@ async function handleMessage(message, sender) {
   switch (message.action) {
     // --- Capture ---
     case 'startCapture':
-      return await startCaptureFromPopup(message.mode);
+      return await startCaptureFromPopup(message.mode, message.outputMode);
 
     case 'captureVisibleTab':
       return await captureCurrentTab();
@@ -159,11 +159,11 @@ async function handleMessage(message, sender) {
 
 // --- Capture ---
 
-async function startCaptureFromPopup(mode) {
+async function startCaptureFromPopup(mode, outputMode) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return { error: 'No active tab found' };
 
-  await injectAndCapture(tab, mode);
+  await injectAndCapture(tab, mode, outputMode);
 
   const { settings } = await chrome.storage.local.get('settings');
   if (settings) {
@@ -174,7 +174,7 @@ async function startCaptureFromPopup(mode) {
   return { success: true };
 }
 
-async function injectAndCapture(tab, mode) {
+async function injectAndCapture(tab, mode, outputMode) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -186,11 +186,11 @@ async function injectAndCapture(tab, mode) {
 
   await new Promise(r => setTimeout(r, 100));
 
+  const msg = { action: 'beginCapture', mode: mode };
+  if (outputMode) msg.outputMode = outputMode;
+
   try {
-    await chrome.tabs.sendMessage(tab.id, {
-      action: 'beginCapture',
-      mode: mode
-    });
+    await chrome.tabs.sendMessage(tab.id, msg);
   } catch (err) {
     // Retry once
     await chrome.scripting.executeScript({
@@ -198,10 +198,7 @@ async function injectAndCapture(tab, mode) {
       files: ['content.js']
     });
     await new Promise(r => setTimeout(r, 200));
-    await chrome.tabs.sendMessage(tab.id, {
-      action: 'beginCapture',
-      mode: mode
-    });
+    await chrome.tabs.sendMessage(tab.id, msg);
   }
 }
 

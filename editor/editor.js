@@ -21,7 +21,8 @@
   let currentOutputMode = 'quickquote';
   let lastGeneratedOutput = null;
   let hasScreenshot = false;
-  const EXTENSION_ORIGIN = chrome.runtime.getURL('').slice(0, -1);
+  // Read the nonce from the URL hash (set by content.js when creating the iframe)
+  const EDITOR_NONCE = location.hash ? location.hash.slice(1) : '';
 
   function init() {
     imageCanvas = document.getElementById('imageCanvas');
@@ -42,8 +43,10 @@
     setupGraphicControls();
 
     window.addEventListener('message', (e) => {
-      // Validate origin: only accept messages from our own extension
-      if (e.origin !== EXTENSION_ORIGIN && e.origin !== location.origin) return;
+      // Validate nonce: only accept messages that include our secret nonce
+      // This authenticates the sender without relying on origin (which differs
+      // between the page's browsing context and the extension iframe)
+      if (e.data?.nonce !== EDITOR_NONCE) return;
       if (e.data?.type === 'pagesnap-load') {
         if (e.data.screenshot) {
           loadImage(e.data.screenshot);
@@ -813,7 +816,11 @@
     });
   }
 
-  function closeEditor() { window.parent.postMessage({ type: 'pagesnap-editor-close' }, EXTENSION_ORIGIN); }
+  function closeEditor() {
+    // Must use '*' because parent window is the web page (different origin).
+    // Nonce authenticates the message so only our content script accepts it.
+    window.parent.postMessage({ type: 'pagesnap-editor-close', nonce: EDITOR_NONCE }, '*');
+  }
 
   function showToast(msg) {
     document.querySelector('.editor-toast')?.remove();
