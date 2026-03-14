@@ -18,6 +18,36 @@ const DEFAULT_SETTINGS = {
   graphicRatio: '16:9'
 };
 
+// --- Rate Limiting ---
+const rateLimiter = {
+  _calls: [],
+  MAX_CALLS: 10,       // max 10 AI calls
+  WINDOW_MS: 60000,    // per 60 seconds
+
+  canCall() {
+    const now = Date.now();
+    this._calls = this._calls.filter(t => now - t < this.WINDOW_MS);
+    return this._calls.length < this.MAX_CALLS;
+  },
+
+  recordCall() {
+    this._calls.push(Date.now());
+  }
+};
+
+// --- Sender Validation ---
+// Sensitive actions that should only be callable from popup/options (not content scripts)
+const PRIVILEGED_ACTIONS = new Set([
+  'getSettings', 'updateSettings',
+  'swipefileClear', 'swipefileExport', 'swipefileRemove'
+]);
+
+function isPrivilegedSender(sender) {
+  // Messages from popup/options pages have no sender.tab
+  // Messages from content scripts have sender.tab set
+  return !sender.tab;
+}
+
 // Initialize on install
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('settings');
@@ -46,6 +76,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleMessage(message, sender) {
+  // Block privileged actions from content scripts
+  if (PRIVILEGED_ACTIONS.has(message.action) && !isPrivilegedSender(sender)) {
+    return { error: 'Unauthorized: this action is not allowed from content scripts.' };
+  }
+
   switch (message.action) {
     // --- Capture ---
     case 'startCapture':
@@ -64,7 +99,7 @@ async function handleMessage(message, sender) {
 
     // --- Settings ---
     case 'getSettings':
-      return await getSettings();
+      return await getSettings(sender);
 
     case 'updateSettings':
       return await updateSettings(message.settings);
@@ -182,15 +217,28 @@ async function captureCurrentTab() {
   }
 }
 
-// --- AI Generation ---
+// --- AI Generation (with rate limiting) ---
 
 async function generateContent(content, outputMode, customPrompt) {
+  // Rate limiting
+  if (!rateLimiter.canCall()) {
+    return { error: 'Rate limited: too many AI requests. Please wait a moment.' };
+  }
+
   const { settings } = await chrome.storage.local.get('settings');
   const apiKey = settings?.apiKey;
 
   if (!apiKey) {
     return { error: 'API key required. Open PageSnap settings to add your Claude API key.' };
   }
+
+  // Validate outputMode against allowed values
+  const validModes = ['quickquote', 'linkedin', 'blogseed', 'thread', 'summary', 'custom'];
+  if (outputMode && !validModes.includes(outputMode)) {
+    return { error: 'Invalid output mode.' };
+  }
+
+  rateLimiter.recordCall();
 
   try {
     const result = await PageSnapAI.generate(apiKey, customPrompt || '', content, outputMode);
@@ -200,13 +248,33 @@ async function generateContent(content, outputMode, customPrompt) {
   }
 }
 
-// --- Downloads ---
+// --- Downloads (with input validation) ---
+
+// Sanitize filename: strip path traversal, null bytes, and special chars
+function sanitizeFilename(filename) {
+  if (!filename || typeof filename !== 'string') return null;
+  return filename
+    .replace(/\.\./g, '')           // remove path traversal
+    .replace(/[\/\\]/g, '')         // remove path separators
+    .replace(/[\x00-\x1f]/g, '')    // remove control characters
+    .replace(/[<>:"|?*]/g, '')      // remove OS-special characters
+    .trim()
+    .slice(0, 200);                 // limit length
+}
 
 async function downloadImage(dataUrl, filename, format) {
+  // Validate dataUrl is actually a data URI (not an arbitrary URL)
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return { error: 'Invalid data URL: must be a data:image/ URI.' };
+  }
+
+  // Sanitize filename
+  const safeName = sanitizeFilename(filename) || generateFilename(format || 'png');
+
   try {
     const downloadId = await chrome.downloads.download({
       url: dataUrl,
-      filename: filename || generateFilename(format || 'png'),
+      filename: safeName,
       saveAs: true
     });
     return { downloadId };
@@ -223,14 +291,30 @@ function generateFilename(format) {
 
 // --- Settings ---
 
-async function getSettings() {
+async function getSettings(sender) {
   const { settings } = await chrome.storage.local.get('settings');
-  return { settings: settings || DEFAULT_SETTINGS };
+  const result = { ...(settings || DEFAULT_SETTINGS) };
+
+  // Mask API key for content script callers (extra safety layer)
+  // Full key only returned to popup/options pages
+  if (sender && sender.tab) {
+    if (result.apiKey) {
+      result.apiKey = result.apiKey.slice(0, 7) + '...' + result.apiKey.slice(-4);
+      result._masked = true;
+    }
+  }
+
+  return { settings: result };
 }
 
 async function updateSettings(newSettings) {
   const { settings } = await chrome.storage.local.get('settings');
   const merged = { ...(settings || DEFAULT_SETTINGS), ...newSettings };
   await chrome.storage.local.set({ settings: merged });
-  return { settings: merged };
+  // Return masked key in response
+  const response = { ...merged };
+  if (response.apiKey) {
+    response.apiKey = response.apiKey.slice(0, 7) + '...' + response.apiKey.slice(-4);
+  }
+  return { settings: response };
 }

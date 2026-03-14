@@ -21,6 +21,7 @@
   let currentOutputMode = 'quickquote';
   let lastGeneratedOutput = null;
   let hasScreenshot = false;
+  const EXTENSION_ORIGIN = chrome.runtime.getURL('').slice(0, -1);
 
   function init() {
     imageCanvas = document.getElementById('imageCanvas');
@@ -41,6 +42,8 @@
     setupGraphicControls();
 
     window.addEventListener('message', (e) => {
+      // Validate origin: only accept messages from our own extension
+      if (e.origin !== EXTENSION_ORIGIN && e.origin !== location.origin) return;
       if (e.data?.type === 'pagesnap-load') {
         if (e.data.screenshot) {
           loadImage(e.data.screenshot);
@@ -198,7 +201,7 @@
 
     btn.disabled = true;
     btn.textContent = 'Generating...';
-    output.innerHTML = '<div class="loading"><style>@keyframes ps-spin{to{transform:rotate(360deg)}}</style><div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:ps-spin 0.8s linear infinite;"></div> Generating with Claude...</div>';
+    setLoadingState(output);
 
     try {
       const customPrompt = document.getElementById('customPrompt').value.trim();
@@ -210,34 +213,98 @@
       });
 
       if (response.error) {
-        output.innerHTML = `<div style="color:#EF4444;">${escapeHtml(response.error)}</div>`;
-        if (response.error.includes('API key')) {
-          output.innerHTML += '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Open extension settings to add your Claude API key.</div>';
-        }
+        setErrorState(output, response.error);
       } else {
         lastGeneratedOutput = response.result;
-        output.innerHTML = formatOutput(response.result.formatted);
+        renderFormattedOutput(output, response.result.formatted);
         actions.style.display = 'flex';
       }
     } catch (err) {
-      output.innerHTML = `<div style="color:#EF4444;">Error: ${escapeHtml(err.message)}</div>`;
+      setErrorState(output, err.message);
     }
 
     btn.disabled = false;
     btn.textContent = 'Generate';
   }
 
-  function formatOutput(text) {
-    // Basic markdown-to-HTML
-    return escapeHtml(text)
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/^### (.+)$/gm, '<h4 style="margin:8px 0 4px;font-size:13px;">$1</h4>')
-      .replace(/^## (.+)$/gm, '<h3 style="margin:10px 0 4px;font-size:14px;">$1</h3>')
-      .replace(/^# (.+)$/gm, '<h2 style="margin:12px 0 6px;font-size:15px;">$1</h2>')
-      .replace(/^[-*] (.+)$/gm, '<div style="padding-left:12px;">&#8226; $1</div>')
-      .replace(/^(\d+)[./] (.+)$/gm, '<div style="padding-left:12px;">$1. $2</div>')
-      .replace(/\n/g, '<br>');
+  // --- Safe DOM rendering helpers (no innerHTML with user/AI content) ---
+
+  function setLoadingState(container) {
+    container.textContent = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'loading';
+    const style = document.createElement('style');
+    style.textContent = '@keyframes ps-spin{to{transform:rotate(360deg)}}';
+    const spinner = document.createElement('div');
+    spinner.style.cssText = 'width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:ps-spin 0.8s linear infinite;';
+    wrapper.appendChild(style);
+    wrapper.appendChild(spinner);
+    wrapper.appendChild(document.createTextNode(' Generating with Claude...'));
+    container.appendChild(wrapper);
+  }
+
+  function setErrorState(container, errorMsg) {
+    container.textContent = '';
+    const div = document.createElement('div');
+    div.style.color = '#EF4444';
+    div.textContent = errorMsg;
+    container.appendChild(div);
+    if (errorMsg.includes('API key')) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'margin-top:8px;font-size:11px;color:var(--text-muted);';
+      hint.textContent = 'Open extension settings to add your Claude API key.';
+      container.appendChild(hint);
+    }
+  }
+
+  function renderFormattedOutput(container, text) {
+    // Safe rendering: parse markdown line-by-line using DOM APIs
+    container.textContent = '';
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) { container.appendChild(document.createElement('br')); continue; }
+
+      // Headings
+      const h3Match = trimmed.match(/^###\s+(.+)$/);
+      if (h3Match) { const el = document.createElement('h4'); el.style.cssText = 'margin:8px 0 4px;font-size:13px;'; el.textContent = h3Match[1]; container.appendChild(el); continue; }
+      const h2Match = trimmed.match(/^##\s+(.+)$/);
+      if (h2Match) { const el = document.createElement('h3'); el.style.cssText = 'margin:10px 0 4px;font-size:14px;'; el.textContent = h2Match[1]; container.appendChild(el); continue; }
+      const h1Match = trimmed.match(/^#\s+(.+)$/);
+      if (h1Match) { const el = document.createElement('h2'); el.style.cssText = 'margin:12px 0 6px;font-size:15px;'; el.textContent = h1Match[1]; container.appendChild(el); continue; }
+
+      // Bullet points
+      const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
+      if (bulletMatch) { const el = document.createElement('div'); el.style.paddingLeft = '12px'; el.textContent = '\u2022 ' + bulletMatch[1]; container.appendChild(el); continue; }
+
+      // Numbered lists
+      const numMatch = trimmed.match(/^(\d+)[./]\s+(.+)$/);
+      if (numMatch) { const el = document.createElement('div'); el.style.paddingLeft = '12px'; el.textContent = numMatch[1] + '. ' + numMatch[2]; container.appendChild(el); continue; }
+
+      // Bold/italic inline — render as styled spans safely
+      const span = document.createElement('span');
+      renderInlineMarkdown(span, trimmed);
+      container.appendChild(span);
+      container.appendChild(document.createElement('br'));
+    }
+  }
+
+  function renderInlineMarkdown(parent, text) {
+    // Parse bold (**text**) and italic (*text*) safely
+    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
+    for (const part of parts) {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        const strong = document.createElement('strong');
+        strong.textContent = part.slice(2, -2);
+        parent.appendChild(strong);
+      } else if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        const em = document.createElement('em');
+        em.textContent = part.slice(1, -1);
+        parent.appendChild(em);
+      } else {
+        parent.appendChild(document.createTextNode(part));
+      }
+    }
   }
 
   async function copyOutputToClipboard() {
@@ -299,7 +366,14 @@
     });
 
     const wrap = document.getElementById('graphicCanvasWrap');
-    wrap.innerHTML = `<img src="${dataUrl}" alt="Generated graphic">`;
+    wrap.textContent = '';
+    const img = document.createElement('img');
+    // Validate dataUrl is actually a data URI before using as src
+    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+      img.src = dataUrl;
+    }
+    img.alt = 'Generated graphic';
+    wrap.appendChild(img);
 
     // Show export actions for the graphic
     document.getElementById('outputActions').style.display = 'flex';
@@ -514,7 +588,14 @@
     const region = document.getElementById('cropRegion');
     if (!region.querySelector('.crop-actions')) {
       const actions = document.createElement('div'); actions.className = 'crop-actions';
-      actions.innerHTML = '<button class="crop-action-btn crop-apply">Apply</button><button class="crop-action-btn crop-cancel">Cancel</button>';
+      const applyBtn = document.createElement('button');
+      applyBtn.className = 'crop-action-btn crop-apply';
+      applyBtn.textContent = 'Apply';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'crop-action-btn crop-cancel';
+      cancelBtn.textContent = 'Cancel';
+      actions.appendChild(applyBtn);
+      actions.appendChild(cancelBtn);
       region.appendChild(actions);
       actions.querySelector('.crop-apply').addEventListener('click', applyCrop);
       actions.querySelector('.crop-cancel').addEventListener('click', cancelCrop);
@@ -732,7 +813,7 @@
     });
   }
 
-  function closeEditor() { window.parent.postMessage({ type: 'pagesnap-editor-close' }, '*'); }
+  function closeEditor() { window.parent.postMessage({ type: 'pagesnap-editor-close' }, EXTENSION_ORIGIN); }
 
   function showToast(msg) {
     document.querySelector('.editor-toast')?.remove();

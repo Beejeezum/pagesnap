@@ -5,8 +5,12 @@
  */
 
 (function() {
-  if (window.__pageSnapInjected) return;
-  window.__pageSnapInjected = true;
+  // Use a Symbol on the IIFE scope to prevent page-level fingerprinting
+  const INJECTED_KEY = Symbol.for('__pagesnap_injected__');
+  if (window[INJECTED_KEY]) return;
+  Object.defineProperty(window, INJECTED_KEY, { value: true, enumerable: false, configurable: false, writable: false });
+
+  const EXTENSION_ORIGIN = chrome.runtime.getURL('').slice(0, -1); // remove trailing slash
 
   let captureMode = null;
   let isCapturing = false;
@@ -606,13 +610,15 @@
         pageUrl: window.location.href,
         pageTitle: document.title,
         initialOutputMode: initialOutputMode || null
-      }, '*');
+      }, EXTENSION_ORIGIN);
     };
 
     container.appendChild(iframe);
     document.body.appendChild(container);
 
     const onMessage = (e) => {
+      // Validate origin: only accept messages from our extension
+      if (e.origin !== EXTENSION_ORIGIN) return;
       if (e.data?.type === 'pagesnap-editor-close') {
         container.remove();
         window.removeEventListener('message', onMessage);
@@ -669,7 +675,17 @@
     let el = document.getElementById('pagesnap-indicator');
     if (!el) { el = document.createElement('div'); el.id = 'pagesnap-indicator'; document.body.appendChild(el); }
     el.style.cssText = 'position:fixed;top:16px;right:16px;background:#4F46E5;color:white;padding:10px 20px;border-radius:8px;font-family:-apple-system,sans-serif;font-size:14px;z-index:2147483647;display:flex;align-items:center;gap:8px;box-shadow:0 4px 12px rgba(79,70,229,0.4);';
-    el.innerHTML = `<style>@keyframes ps-spin{to{transform:rotate(360deg)}}</style><div style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:ps-spin 0.8s linear infinite;"></div><span>${text}</span>`;
+    // Build spinner + text with safe DOM APIs (no innerHTML)
+    el.textContent = '';
+    const styleEl = document.createElement('style');
+    styleEl.textContent = '@keyframes ps-spin{to{transform:rotate(360deg)}}';
+    const spinner = document.createElement('div');
+    spinner.style.cssText = 'width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:ps-spin 0.8s linear infinite;';
+    const span = document.createElement('span');
+    span.textContent = text;
+    el.appendChild(styleEl);
+    el.appendChild(spinner);
+    el.appendChild(span);
   }
 
   function hideIndicator() {

@@ -12,7 +12,7 @@ const PageSnapSwipeFile = {
    */
   async save(item) {
     const entry = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       url: item.url || '',
       domain: item.domain || '',

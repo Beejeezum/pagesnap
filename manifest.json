@@ -42,11 +42,7 @@
         "editor/editor.css",
         "editor/editor.js",
         "utils/annotations.js",
-        "utils/social-graphics.js",
-        "settings/settings.html",
-        "settings/settings.css",
-        "settings/settings.js",
-        "icons/*"
+        "utils/social-graphics.js"
       ],
       "matches": ["<all_urls>"]
     }

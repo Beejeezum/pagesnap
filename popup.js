@@ -96,39 +96,52 @@ async function loadLibrary(filter) {
   const items = response?.items || [];
 
   if (items.length === 0) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <p>No captures yet.</p>
-        <p class="muted">Captured content will appear here.</p>
-      </div>
-    `;
+    list.textContent = '';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    const p1 = document.createElement('p');
+    p1.textContent = 'No captures yet.';
+    const p2 = document.createElement('p');
+    p2.className = 'muted';
+    p2.textContent = 'Captured content will appear here.';
+    empty.appendChild(p1);
+    empty.appendChild(p2);
+    list.appendChild(empty);
     return;
   }
 
-  list.innerHTML = '';
+  list.textContent = '';
   items.slice(0, 30).forEach(item => {
     const el = document.createElement('div');
     el.className = 'library-item';
-    el.innerHTML = `
-      <div class="library-item-content">
-        <div class="library-item-title">${escapeHtml(item.title || 'Untitled')}</div>
-        <div class="library-item-domain">${escapeHtml(item.domain || '')} &middot; ${timeAgo(item.timestamp)}</div>
-      </div>
-      <button class="library-item-fav ${item.favorite ? 'active' : ''}" data-id="${item.id}" title="Toggle favorite">
-        ${item.favorite ? '\u2605' : '\u2606'}
-      </button>
-    `;
 
-    // Click to open (future: open detail view)
-    el.querySelector('.library-item-content').addEventListener('click', () => {
-      // For now, open the URL
+    const content = document.createElement('div');
+    content.className = 'library-item-content';
+    const title = document.createElement('div');
+    title.className = 'library-item-title';
+    title.textContent = item.title || 'Untitled';
+    const domain = document.createElement('div');
+    domain.className = 'library-item-domain';
+    domain.textContent = (item.domain || '') + ' \u00B7 ' + timeAgo(item.timestamp);
+    content.appendChild(title);
+    content.appendChild(domain);
+
+    const fav = document.createElement('button');
+    fav.className = 'library-item-fav' + (item.favorite ? ' active' : '');
+    fav.dataset.id = item.id;
+    fav.title = 'Toggle favorite';
+    fav.textContent = item.favorite ? '\u2605' : '\u2606';
+
+    el.appendChild(content);
+    el.appendChild(fav);
+
+    content.addEventListener('click', () => {
       if (item.url) {
         chrome.tabs.create({ url: item.url });
       }
     });
 
-    // Favorite toggle
-    el.querySelector('.library-item-fav').addEventListener('click', async (e) => {
+    fav.addEventListener('click', async (e) => {
       e.stopPropagation();
       await chrome.runtime.sendMessage({
         action: 'swipefileToggleFavorite',
@@ -173,20 +186,30 @@ function setupLibrary() {
 function renderSearchResults(items) {
   const list = document.getElementById('libraryList');
   if (items.length === 0) {
-    list.innerHTML = `<div class="empty-state"><p>No results found.</p></div>`;
+    list.textContent = '';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    const p = document.createElement('p');
+    p.textContent = 'No results found.';
+    empty.appendChild(p);
+    list.appendChild(empty);
     return;
   }
-  // Reuse same render logic
-  list.innerHTML = '';
+  list.textContent = '';
   items.forEach(item => {
     const el = document.createElement('div');
     el.className = 'library-item';
-    el.innerHTML = `
-      <div class="library-item-content">
-        <div class="library-item-title">${escapeHtml(item.title || 'Untitled')}</div>
-        <div class="library-item-domain">${escapeHtml(item.domain || '')}</div>
-      </div>
-    `;
+    const content = document.createElement('div');
+    content.className = 'library-item-content';
+    const title = document.createElement('div');
+    title.className = 'library-item-title';
+    title.textContent = item.title || 'Untitled';
+    const domain = document.createElement('div');
+    domain.className = 'library-item-domain';
+    domain.textContent = item.domain || '';
+    content.appendChild(title);
+    content.appendChild(domain);
+    el.appendChild(content);
     list.appendChild(el);
   });
 }
