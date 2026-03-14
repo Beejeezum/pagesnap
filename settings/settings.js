@@ -36,13 +36,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       graphicStyle: document.getElementById('graphicStyle').value
     };
 
-    await chrome.runtime.sendMessage({
+    const result = await chrome.runtime.sendMessage({
       action: 'updateSettings',
       settings: newSettings
     });
 
     const status = document.getElementById('saveStatus');
-    status.textContent = 'Settings saved';
+    if (result?.error) {
+      status.textContent = 'Error: ' + result.error;
+      status.style.color = '#DC2626';
+    } else {
+      status.textContent = 'Settings saved';
+      status.style.color = '#059669';
+    }
     setTimeout(() => { status.textContent = ''; }, 2000);
   });
 

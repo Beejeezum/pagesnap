@@ -43,9 +43,21 @@ const PRIVILEGED_ACTIONS = new Set([
 ]);
 
 function isPrivilegedSender(sender) {
-  // Messages from popup/options pages have no sender.tab
-  // Messages from content scripts have sender.tab set
+  // Extension pages (popup, options, editor) have sender.url starting with chrome-extension://
+  // Content scripts have the web page URL (https://...) as sender.url
+  if (sender.url) {
+    return sender.url.startsWith('chrome-extension://');
+  }
+  // Fallback: no tab means popup
   return !sender.tab;
+}
+
+function isContentScript(sender) {
+  // Content scripts have sender.url set to the web page URL, not an extension URL
+  if (sender.url) {
+    return !sender.url.startsWith('chrome-extension://');
+  }
+  return !!sender.tab;
 }
 
 // Initialize on install
@@ -293,8 +305,8 @@ async function getSettings(sender) {
   const result = { ...(settings || DEFAULT_SETTINGS) };
 
   // Mask API key for content script callers (extra safety layer)
-  // Full key only returned to popup/options pages
-  if (sender && sender.tab) {
+  // Full key only returned to extension pages (popup/options)
+  if (sender && isContentScript(sender)) {
     if (result.apiKey) {
       result.apiKey = result.apiKey.slice(0, 7) + '...' + result.apiKey.slice(-4);
       result._masked = true;
