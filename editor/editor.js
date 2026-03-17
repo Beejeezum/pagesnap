@@ -154,6 +154,34 @@
     document.getElementById('contentWordCount').textContent =
       content.content?.wordCount ? `${content.content.wordCount} words` : '';
     document.getElementById('contentExcerpt').textContent = content.excerpt || content.description || '';
+
+    // Full text section
+    const fullText = content.content?.text;
+    if (fullText && fullText.length > 100) {
+      const toggleWrap = document.getElementById('contentFullTextToggle');
+      const textEl = document.getElementById('contentFullText');
+      const toggleBtn = document.getElementById('toggleFullText');
+      const copyBtn = document.getElementById('copyFullText');
+      toggleWrap.style.display = 'flex';
+
+      textEl.textContent = fullText;
+
+      toggleBtn.addEventListener('click', () => {
+        const visible = textEl.style.display !== 'none';
+        textEl.style.display = visible ? 'none' : 'block';
+        toggleBtn.textContent = visible ? 'Show Full Text' : 'Hide Full Text';
+      });
+
+      copyBtn.addEventListener('click', async () => {
+        try {
+          const copyText = (content.title ? content.title + '\n\n' : '') + fullText;
+          await navigator.clipboard.writeText(copyText);
+          showToast('Text copied to clipboard');
+        } catch (e) {
+          showToast('Copy failed');
+        }
+      });
+    }
   }
 
   // --- Output Modes ---
@@ -253,9 +281,30 @@
     div.textContent = errorMsg;
     container.appendChild(div);
     if (errorMsg.includes('API key')) {
+      const keyForm = document.createElement('div');
+      keyForm.style.cssText = 'margin-top:12px;display:flex;gap:8px;align-items:center;';
+      const keyInput = document.createElement('input');
+      keyInput.type = 'password';
+      keyInput.placeholder = 'Paste your Claude API key here...';
+      keyInput.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text);font-size:12px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save & Generate';
+      saveBtn.style.cssText = 'padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap;';
+      saveBtn.addEventListener('click', async () => {
+        const key = keyInput.value.trim();
+        if (!key) return;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        await chrome.runtime.sendMessage({ action: 'updateSettings', settings: { apiKey: key } });
+        showToast('API key saved');
+        generateContent();
+      });
+      keyForm.appendChild(keyInput);
+      keyForm.appendChild(saveBtn);
+      container.appendChild(keyForm);
       const hint = document.createElement('div');
-      hint.style.cssText = 'margin-top:8px;font-size:11px;color:var(--text-muted);';
-      hint.textContent = 'Open extension settings to add your Claude API key.';
+      hint.style.cssText = 'margin-top:6px;font-size:11px;color:var(--text-muted);';
+      hint.textContent = 'Your key is stored locally and never sent anywhere except the Claude API.';
       container.appendChild(hint);
     }
   }

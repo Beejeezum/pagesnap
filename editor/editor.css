@@ -190,6 +190,25 @@ html, body {
   overflow: hidden;
 }
 
+/* Full text toggle */
+.content-full-text-toggle {
+  display: flex; gap: 6px; margin-top: 8px;
+}
+.toggle-text-btn {
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input-bg); color: var(--text-secondary);
+  font-size: 11px; cursor: pointer; transition: all 0.15s;
+}
+.toggle-text-btn:hover {
+  background: var(--btn-hover); color: var(--text);
+}
+.content-full-text {
+  margin-top: 8px; padding: 10px; border-radius: 6px;
+  background: var(--input-bg); border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+  max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+}
+
 /* Output Modes */
 .output-modes {
   display: flex; flex-wrap: wrap; gap: 4px;

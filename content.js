@@ -272,9 +272,9 @@
       document.head.appendChild(styleEl);
 
       const fixedEls = this._getFixedElements();
-      const fixedStyles = this._hideFixedElements(fixedEls);
       const captures = [];
       let curY = 0, count = 0;
+      let fixedStyles = null;
 
       try {
         window.scrollTo(0, 0);
@@ -285,16 +285,27 @@
           await this._wait(scrollDelay);
           this._triggerLazyLoad();
 
-          const result = await this._captureViewport();
-          if (result.error) throw new Error(result.error);
+          // First capture (top of page): include headers naturally
+          // Subsequent captures: hide fixed/sticky elements to prevent duplication
+          if (count === 0) {
+            // Capture the first viewport with everything visible
+            const result = await this._captureViewport();
+            if (result.error) throw new Error(result.error);
+            captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, pageHeight - window.scrollY), viewportHeight: vpH });
+            // Now hide fixed elements for all remaining captures
+            fixedStyles = this._hideFixedElements(fixedEls);
+          } else {
+            const result = await this._captureViewport();
+            if (result.error) throw new Error(result.error);
+            captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, pageHeight - window.scrollY), viewportHeight: vpH });
+          }
 
-          captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, pageHeight - window.scrollY), viewportHeight: vpH });
           curY += vpH;
           count++;
           if (window.scrollY + vpH >= pageHeight) break;
         }
       } finally {
-        this._restoreFixedElements(fixedEls, fixedStyles);
+        if (fixedStyles) this._restoreFixedElements(fixedEls, fixedStyles);
         document.getElementById('pagesnap-capture-style')?.remove();
         window.scrollTo(origX, origY);
       }
@@ -366,22 +377,54 @@
 
     _getFixedElements() {
       const fixed = [];
-      const els = document.querySelectorAll('header, nav, [class*="sticky"], [class*="fixed"], [style*="position: fixed"], [style*="position:fixed"]');
-      for (const el of els) {
+      // Check ALL elements for fixed/sticky positioning (computed style is authoritative)
+      const candidates = document.querySelectorAll('header, nav, div, section, aside, [class*="sticky"], [class*="fixed"], [class*="header"], [class*="navbar"], [class*="nav-bar"], [class*="toolbar"], [class*="topbar"], [class*="top-bar"], [class*="banner"], [style*="position"]');
+      const seen = new Set();
+      for (const el of candidates) {
+        if (seen.has(el)) continue;
+        seen.add(el);
         try {
           const s = window.getComputedStyle(el);
-          if (s.position === 'fixed' || s.position === 'sticky') fixed.push(el);
+          if (s.position === 'fixed' || s.position === 'sticky') {
+            fixed.push(el);
+            // Don't also process children that are fixed — the parent handles it
+            el.querySelectorAll('*').forEach(child => seen.add(child));
+          }
         } catch (e) {}
       }
       return fixed;
     },
 
     _hideFixedElements(els) {
-      return els.map(el => { const o = { position: el.style.position }; el.style.position = 'absolute'; return o; });
+      // For fixed elements: use visibility:hidden (doesn't affect document flow)
+      // For sticky elements: set to position:relative so they stay in normal flow
+      // and only appear once at their natural document position
+      return els.map(el => {
+        const computed = window.getComputedStyle(el);
+        const orig = {
+          position: el.style.position,
+          visibility: el.style.visibility,
+          wasFixed: computed.position === 'fixed',
+          wasSticky: computed.position === 'sticky'
+        };
+        if (computed.position === 'fixed') {
+          // Fixed elements float over content — hide them completely
+          el.style.visibility = 'hidden';
+        } else if (computed.position === 'sticky') {
+          // Sticky elements snap to viewport — make them relative so they
+          // stay in their natural document position and appear only once
+          el.style.position = 'relative';
+        }
+        return orig;
+      });
     },
 
     _restoreFixedElements(els, styles) {
-      els.forEach((el, i) => { if (styles[i]) el.style.position = styles[i].position; });
+      els.forEach((el, i) => {
+        if (!styles[i]) return;
+        el.style.position = styles[i].position;
+        el.style.visibility = styles[i].visibility;
+      });
     },
 
     _triggerLazyLoad() {
