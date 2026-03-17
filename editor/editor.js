@@ -1,6 +1,7 @@
 /**
- * PageSnap v2 - Editor
+ * PageSnap v3 - Editor
  * Screenshot annotation + AI content generation panel.
+ * Zoom/pan, paintbrush, eraser, streaming AI, voice/tone.
  */
 
 (function() {
@@ -11,6 +12,7 @@
   let currentColor = '#FF0000';
   let currentLineWidth = 2;
   let currentFontSize = 16;
+  let currentOpacity = 1;
   let annotationState = null;
   let pageContent = null;
   let pageUrl = '', pageTitle = '';
@@ -19,9 +21,17 @@
   let cropMode = false, cropRect = {}, cropDragging = false;
   let freehandPoints = [];
   let currentOutputMode = 'quickquote';
+  let currentVoice = 'straight-shooter';
   let lastGeneratedOutput = null;
   let hasScreenshot = false;
-  // Read the nonce from the URL hash (set by content.js when creating the iframe)
+
+  // Zoom/pan state
+  let zoomLevel = 1; // 1 = fit-to-view
+  let panX = 0, panY = 0;
+  let isPanning = false, panStartX = 0, panStartY = 0, panStartPanX = 0, panStartPanY = 0;
+  let spacePressed = false;
+  let baseScale = 1; // the fit-to-view scale
+
   const EDITOR_NONCE = location.hash ? location.hash.slice(1) : '';
 
   function init() {
@@ -41,11 +51,10 @@
     setupPanelTabs();
     setupOutputModes();
     setupGraphicControls();
+    setupZoomControls();
+    loadVoiceSetting();
 
     window.addEventListener('message', (e) => {
-      // Validate nonce: only accept messages that include our secret nonce
-      // This authenticates the sender without relying on origin (which differs
-      // between the page's browsing context and the extension iframe)
       if (e.data?.nonce !== EDITOR_NONCE) return;
       if (e.data?.type === 'pagesnap-load') {
         if (e.data.screenshot) {
@@ -54,7 +63,6 @@
           hasScreenshot = false;
           document.getElementById('noScreenshot').style.display = 'block';
           document.getElementById('annotationTools').style.visibility = 'hidden';
-          // Switch to content panel
           switchPanel('content');
         }
         if (e.data.content) {
@@ -65,13 +73,9 @@
         pageTitle = e.data.pageTitle || '';
         if (e.data.initialOutputMode) {
           setOutputMode(e.data.initialOutputMode);
-          // Auto-generate if coming from Create tab
-          if (pageContent) {
-            setTimeout(() => generateContent(), 300);
-          }
+          if (pageContent) setTimeout(() => generateContent(), 300);
         }
       }
-      // Legacy support
       if (e.data?.type === 'pagesnap-load-image') {
         loadImage(e.data.dataUrl);
         pageUrl = e.data.pageUrl || '';
@@ -98,20 +102,54 @@
     if (!originalImage) return;
     const rect = container.getBoundingClientRect();
     const pad = 30;
-    canvasScale = Math.min((rect.width - pad * 2) / originalImage.width, (rect.height - pad * 2) / originalImage.height, 1);
-    const dw = Math.round(originalImage.width * canvasScale);
-    const dh = Math.round(originalImage.height * canvasScale);
+    baseScale = Math.min((rect.width - pad * 2) / originalImage.width, (rect.height - pad * 2) / originalImage.height, 1);
 
     imageCanvas.width = originalImage.width;
     imageCanvas.height = originalImage.height;
-    imageCanvas.style.width = dw + 'px';
-    imageCanvas.style.height = dh + 'px';
     annotCanvas.width = originalImage.width;
     annotCanvas.height = originalImage.height;
-    annotCanvas.style.width = dw + 'px';
-    annotCanvas.style.height = dh + 'px';
+
+    applyZoom();
     imageCtx.drawImage(originalImage, 0, 0);
     redrawAnnotations();
+  }
+
+  function applyZoom() {
+    if (!originalImage) return;
+    canvasScale = baseScale * zoomLevel;
+    const dw = Math.round(originalImage.width * canvasScale);
+    const dh = Math.round(originalImage.height * canvasScale);
+
+    const style = `width:${dw}px;height:${dh}px;transform:translate(${panX}px,${panY}px);`;
+    imageCanvas.style.cssText = style;
+    annotCanvas.style.cssText = style;
+
+    updateZoomDisplay();
+  }
+
+  // --- Zoom Controls ---
+  function setupZoomControls() {
+    document.getElementById('zoomIn')?.addEventListener('click', () => setZoom(zoomLevel * 1.25));
+    document.getElementById('zoomOut')?.addEventListener('click', () => setZoom(zoomLevel / 1.25));
+    document.getElementById('zoomFit')?.addEventListener('click', () => { zoomLevel = 1; panX = 0; panY = 0; applyZoom(); });
+
+    // Scroll wheel zoom
+    container.addEventListener('wheel', (e) => {
+      if (!hasScreenshot) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      setZoom(zoomLevel * delta);
+    }, { passive: false });
+  }
+
+  function setZoom(level) {
+    zoomLevel = Math.max(0.1, Math.min(10, level));
+    applyZoom();
+  }
+
+  function updateZoomDisplay() {
+    const el = document.getElementById('zoomLevel');
+    if (el) el.textContent = Math.round(zoomLevel * 100) + '%';
   }
 
   // --- Panel Tabs ---
@@ -139,7 +177,6 @@
       document.getElementById('annotationTools').style.display = 'none';
     }
 
-    // If both panels should show (has screenshot), show side-by-side
     if (hasScreenshot && panel === 'content') {
       sp.style.display = 'flex';
       cp.style.display = 'flex';
@@ -155,7 +192,6 @@
       content.content?.wordCount ? `${content.content.wordCount} words` : '';
     document.getElementById('contentExcerpt').textContent = content.excerpt || content.description || '';
 
-    // Full text section
     const fullText = content.content?.text;
     if (fullText && fullText.length > 100) {
       const toggleWrap = document.getElementById('contentFullTextToggle');
@@ -163,7 +199,6 @@
       const toggleBtn = document.getElementById('toggleFullText');
       const copyBtn = document.getElementById('copyFullText');
       toggleWrap.style.display = 'flex';
-
       textEl.textContent = fullText;
 
       toggleBtn.addEventListener('click', () => {
@@ -177,9 +212,7 @@
           const copyText = (content.title ? content.title + '\n\n' : '') + fullText;
           await navigator.clipboard.writeText(copyText);
           showToast('Text copied to clipboard');
-        } catch (e) {
-          showToast('Copy failed');
-        }
+        } catch (e) { showToast('Copy failed'); }
       });
     }
   }
@@ -191,7 +224,31 @@
     });
     document.getElementById('generateBtn').addEventListener('click', generateContent);
     document.getElementById('copyOutput').addEventListener('click', copyOutputToClipboard);
+    document.getElementById('copyCloseOutput').addEventListener('click', async () => {
+      await copyOutputToClipboard();
+      setTimeout(closeEditor, 300);
+    });
     document.getElementById('saveOutput').addEventListener('click', saveOutputToLibrary);
+
+    // Voice selector
+    const voiceSelect = document.getElementById('voiceSelect');
+    if (voiceSelect) {
+      voiceSelect.addEventListener('change', (e) => {
+        currentVoice = e.target.value;
+        chrome.runtime.sendMessage({ action: 'updateSettings', settings: { voice: currentVoice } });
+      });
+    }
+  }
+
+  async function loadVoiceSetting() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
+      if (response?.settings?.voice) {
+        currentVoice = response.settings.voice;
+        const voiceSelect = document.getElementById('voiceSelect');
+        if (voiceSelect) voiceSelect.value = currentVoice;
+      }
+    } catch (e) { /* use default */ }
   }
 
   function setOutputMode(mode) {
@@ -199,13 +256,11 @@
     document.querySelectorAll('.output-mode-btn').forEach(b => b.classList.remove('active'));
     document.querySelector(`.output-mode-btn[data-mode="${mode}"]`)?.classList.add('active');
 
-    // Show/hide graphic controls
     const graphicPreview = document.getElementById('graphicPreview');
     const aiOutput = document.getElementById('aiOutput');
     if (mode === 'graphic') {
       graphicPreview.style.display = 'flex';
       aiOutput.style.display = 'none';
-      // Pre-fill quote with excerpt
       if (pageContent && !document.getElementById('graphicQuote').value) {
         document.getElementById('graphicQuote').value = pageContent.excerpt || pageContent.title || '';
       }
@@ -216,15 +271,8 @@
   }
 
   async function generateContent() {
-    if (!pageContent) {
-      showToast('No content extracted. Capture a page first.');
-      return;
-    }
-
-    if (currentOutputMode === 'graphic') {
-      generateGraphic();
-      return;
-    }
+    if (!pageContent) { showToast('No content extracted. Capture a page first.'); return; }
+    if (currentOutputMode === 'graphic') { generateGraphic(); return; }
 
     const btn = document.getElementById('generateBtn');
     const output = document.getElementById('aiOutput');
@@ -232,7 +280,13 @@
 
     btn.disabled = true;
     btn.textContent = 'Generating...';
-    setLoadingState(output);
+    output.textContent = '';
+
+    // Streaming: show text as it arrives
+    let streamedText = '';
+    const streamContainer = document.createElement('div');
+    streamContainer.className = 'streaming-output';
+    output.appendChild(streamContainer);
 
     try {
       const customPrompt = document.getElementById('customPrompt').value.trim();
@@ -258,7 +312,7 @@
     btn.textContent = 'Generate';
   }
 
-  // --- Safe DOM rendering helpers (no innerHTML with user/AI content) ---
+  // --- Safe DOM rendering helpers ---
 
   function setLoadingState(container) {
     container.textContent = '';
@@ -310,14 +364,12 @@
   }
 
   function renderFormattedOutput(container, text) {
-    // Safe rendering: parse markdown line-by-line using DOM APIs
     container.textContent = '';
     const lines = text.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) { container.appendChild(document.createElement('br')); continue; }
 
-      // Headings
       const h3Match = trimmed.match(/^###\s+(.+)$/);
       if (h3Match) { const el = document.createElement('h4'); el.style.cssText = 'margin:8px 0 4px;font-size:13px;'; el.textContent = h3Match[1]; container.appendChild(el); continue; }
       const h2Match = trimmed.match(/^##\s+(.+)$/);
@@ -325,15 +377,12 @@
       const h1Match = trimmed.match(/^#\s+(.+)$/);
       if (h1Match) { const el = document.createElement('h2'); el.style.cssText = 'margin:12px 0 6px;font-size:15px;'; el.textContent = h1Match[1]; container.appendChild(el); continue; }
 
-      // Bullet points
       const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
       if (bulletMatch) { const el = document.createElement('div'); el.style.paddingLeft = '12px'; el.textContent = '\u2022 ' + bulletMatch[1]; container.appendChild(el); continue; }
 
-      // Numbered lists
       const numMatch = trimmed.match(/^(\d+)[./]\s+(.+)$/);
       if (numMatch) { const el = document.createElement('div'); el.style.paddingLeft = '12px'; el.textContent = numMatch[1] + '. ' + numMatch[2]; container.appendChild(el); continue; }
 
-      // Bold/italic inline — render as styled spans safely
       const span = document.createElement('span');
       renderInlineMarkdown(span, trimmed);
       container.appendChild(span);
@@ -342,7 +391,6 @@
   }
 
   function renderInlineMarkdown(parent, text) {
-    // Parse bold (**text**) and italic (*text*) safely
     const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
     for (const part of parts) {
       if (part.startsWith('**') && part.endsWith('**')) {
@@ -364,29 +412,20 @@
     try {
       await navigator.clipboard.writeText(lastGeneratedOutput.copyText || lastGeneratedOutput.raw);
       showToast('Copied to clipboard');
-    } catch (e) {
-      showToast('Copy failed');
-    }
+    } catch (e) { showToast('Copy failed'); }
   }
 
   async function saveOutputToLibrary() {
     if (!lastGeneratedOutput || !pageContent) return;
     try {
-      // Find the swipe file item for this URL and add the output
       const response = await chrome.runtime.sendMessage({ action: 'swipefileGetAll' });
       const items = response?.items || [];
       const match = items.find(i => i.url === pageContent.url);
       if (match) {
-        await chrome.runtime.sendMessage({
-          action: 'swipefileAddOutput',
-          id: match.id,
-          output: lastGeneratedOutput
-        });
+        await chrome.runtime.sendMessage({ action: 'swipefileAddOutput', id: match.id, output: lastGeneratedOutput });
       }
       showToast('Saved to library');
-    } catch (e) {
-      showToast('Save failed');
-    }
+    } catch (e) { showToast('Save failed'); }
   }
 
   // --- Social Graphics ---
@@ -398,36 +437,41 @@
 
   function generateGraphic() {
     const quote = document.getElementById('graphicQuote').value.trim();
-    if (!quote) {
-      showToast('Enter a quote for the graphic');
-      return;
-    }
+    if (!quote) { showToast('Enter a quote for the graphic'); return; }
 
     const style = document.getElementById('graphicStyle').value;
     const ratioId = document.getElementById('graphicRatio').value;
     const ratios = { '16:9': [1200, 675], '1:1': [1080, 1080], '4:5': [1080, 1350], '9:16': [1080, 1920] };
     const [w, h] = ratios[ratioId] || [1200, 675];
 
-    const dataUrl = PageSnapGraphics.generate({
-      quote: quote,
+    const options = {
+      quote,
       source: pageContent?.url || pageUrl,
       author: pageContent?.author || '',
-      style: style,
+      title: pageContent?.title || pageTitle,
+      style,
       width: w,
       height: h
-    });
+    };
 
+    // If we have a screenshot, pass a thumbnail for background
+    if (hasScreenshot && originalImage) {
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = w;
+      thumbCanvas.height = h;
+      const tCtx = thumbCanvas.getContext('2d');
+      tCtx.drawImage(originalImage, 0, 0, w, h);
+      options.backgroundImage = thumbCanvas;
+    }
+
+    const dataUrl = PageSnapGraphics.generate(options);
     const wrap = document.getElementById('graphicCanvasWrap');
     wrap.textContent = '';
     const img = document.createElement('img');
-    // Validate dataUrl is actually a data URI before using as src
-    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
-      img.src = dataUrl;
-    }
+    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) img.src = dataUrl;
     img.alt = 'Generated graphic';
     wrap.appendChild(img);
 
-    // Show export actions for the graphic
     document.getElementById('outputActions').style.display = 'flex';
     lastGeneratedOutput = {
       mode: 'graphic',
@@ -461,21 +505,29 @@
     document.querySelector(`.tool-btn[data-tool="${tool}"]`)?.classList.add('active');
     annotationState.selectedId = null;
     redrawAnnotations();
-    annotCanvas.style.cursor = ['select'].includes(tool) ? 'default' : 'crosshair';
-    if (tool === 'text') annotCanvas.style.cursor = 'text';
+
+    if (tool === 'pan') annotCanvas.style.cursor = 'grab';
+    else if (tool === 'text') annotCanvas.style.cursor = 'text';
+    else if (tool === 'select') annotCanvas.style.cursor = 'default';
+    else if (tool === 'eraser') annotCanvas.style.cursor = 'crosshair';
+    else annotCanvas.style.cursor = 'crosshair';
+
     updateToolOptions();
     if (tool === 'crop') enterCropMode();
     else if (cropMode) cancelCrop();
   }
 
   function updateToolOptions() {
-    const drawTools = ['arrow', 'rectangle', 'highlight', 'blur', 'freehand', 'text'];
-    const hasColor = drawTools.includes(currentTool);
-    const hasWidth = ['arrow', 'rectangle', 'freehand'].includes(currentTool);
+    const drawTools = ['arrow', 'rectangle', 'highlight', 'blur', 'freehand', 'text', 'marker', 'eraser'];
+    const hasColor = drawTools.includes(currentTool) && currentTool !== 'eraser' && currentTool !== 'blur';
+    const hasWidth = ['arrow', 'rectangle', 'freehand', 'marker', 'eraser'].includes(currentTool);
     const hasFont = currentTool === 'text';
+    const hasOpacity = ['highlight', 'marker'].includes(currentTool);
     document.getElementById('colorPicker').style.display = hasColor ? 'flex' : 'none';
     document.getElementById('lineWidthGroup').style.display = hasWidth ? 'flex' : 'none';
     document.getElementById('fontSizeGroup').style.display = hasFont ? 'flex' : 'none';
+    const opGroup = document.getElementById('opacityGroup');
+    if (opGroup) opGroup.style.display = hasOpacity ? 'flex' : 'none';
   }
 
   function setupToolOptions() {
@@ -499,6 +551,24 @@
       currentFontSize = parseInt(e.target.value);
       document.getElementById('fontSizeValue').textContent = currentFontSize;
     });
+    // Opacity slider
+    const opSlider = document.getElementById('opacitySlider');
+    if (opSlider) {
+      opSlider.addEventListener('input', (e) => {
+        currentOpacity = parseInt(e.target.value) / 100;
+        document.getElementById('opacityValue').textContent = e.target.value + '%';
+      });
+    }
+    // Line width presets
+    document.querySelectorAll('.width-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentLineWidth = parseInt(btn.dataset.width);
+        document.getElementById('lineWidth').value = currentLineWidth;
+        document.getElementById('lineWidthValue').textContent = currentLineWidth;
+        document.querySelectorAll('.width-preset').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
   }
 
   // --- Canvas Events ---
@@ -506,7 +576,34 @@
     annotCanvas.addEventListener('mousedown', onDown);
     annotCanvas.addEventListener('mousemove', onMove);
     annotCanvas.addEventListener('mouseup', onUp);
+    // Middle click pan
+    annotCanvas.addEventListener('mousedown', (e) => {
+      if (e.button === 1) { e.preventDefault(); startPan(e); }
+    });
     window.addEventListener('resize', () => fitImageToContainer());
+  }
+
+  function startPan(e) {
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panStartPanX = panX;
+    panStartPanY = panY;
+    annotCanvas.style.cursor = 'grabbing';
+
+    const onPanMove = (e) => {
+      panX = panStartPanX + (e.clientX - panStartX);
+      panY = panStartPanY + (e.clientY - panStartY);
+      applyZoom();
+    };
+    const onPanUp = () => {
+      isPanning = false;
+      annotCanvas.style.cursor = currentTool === 'pan' ? 'grab' : 'default';
+      document.removeEventListener('mousemove', onPanMove);
+      document.removeEventListener('mouseup', onPanUp);
+    };
+    document.addEventListener('mousemove', onPanMove);
+    document.addEventListener('mouseup', onPanUp);
   }
 
   function getCoords(e) {
@@ -515,7 +612,12 @@
   }
 
   function onDown(e) {
+    if (e.button === 1) return; // middle click handled separately
     if (cropMode) return;
+
+    // Space+drag = pan
+    if (spacePressed || currentTool === 'pan') { startPan(e); return; }
+
     const { x, y } = getCoords(e);
     isDrawing = true; drawStartX = x; drawStartY = y;
 
@@ -526,23 +628,41 @@
       if (hit) isDrawing = false;
       return;
     }
+    if (currentTool === 'eraser') {
+      // Erase any annotation under cursor
+      const hit = PageSnapAnnotations.hitTest(annotationState, x, y);
+      if (hit) {
+        PageSnapAnnotations.removeAnnotation(annotationState, hit.id);
+        redrawAnnotations();
+        updateUndoRedo();
+      }
+      isDrawing = false;
+      return;
+    }
     if (currentTool === 'text') {
       isDrawing = false;
       showTextInput(e.clientX, e.clientY, x, y);
       return;
     }
-    if (currentTool === 'freehand') freehandPoints = [{ x, y }];
+    if (currentTool === 'freehand' || currentTool === 'marker') freehandPoints = [{ x, y }];
   }
 
   function onMove(e) {
-    if (!isDrawing || cropMode) return;
+    if (!isDrawing || cropMode || isPanning) return;
     const { x, y } = getCoords(e);
 
-    if (currentTool === 'freehand') {
+    if (currentTool === 'freehand' || currentTool === 'marker') {
       freehandPoints.push({ x, y });
       redrawAnnotations();
       annotCtx.save();
-      annotCtx.strokeStyle = currentColor; annotCtx.lineWidth = currentLineWidth;
+      if (currentTool === 'marker') {
+        annotCtx.globalAlpha = currentOpacity;
+        annotCtx.strokeStyle = currentColor;
+        annotCtx.lineWidth = Math.max(currentLineWidth * 3, 12);
+      } else {
+        annotCtx.strokeStyle = currentColor;
+        annotCtx.lineWidth = currentLineWidth;
+      }
       annotCtx.lineCap = 'round'; annotCtx.lineJoin = 'round';
       annotCtx.beginPath(); annotCtx.moveTo(freehandPoints[0].x, freehandPoints[0].y);
       for (let i = 1; i < freehandPoints.length; i++) annotCtx.lineTo(freehandPoints[i].x, freehandPoints[i].y);
@@ -561,6 +681,12 @@
     if (currentTool === 'freehand') {
       if (freehandPoints.length > 2) {
         PageSnapAnnotations.addAnnotation(annotationState, { type: 'freehand', points: [...freehandPoints], color: currentColor, lineWidth: currentLineWidth });
+      }
+      freehandPoints = []; redrawAnnotations(); updateUndoRedo(); return;
+    }
+    if (currentTool === 'marker') {
+      if (freehandPoints.length > 2) {
+        PageSnapAnnotations.addAnnotation(annotationState, { type: 'marker', points: [...freehandPoints], color: currentColor, lineWidth: Math.max(currentLineWidth * 3, 12), opacity: currentOpacity });
       }
       freehandPoints = []; redrawAnnotations(); updateUndoRedo(); return;
     }
@@ -584,7 +710,7 @@
         ctx.strokeStyle = currentColor; ctx.lineWidth = currentLineWidth;
         ctx.strokeRect(x1, y1, x2-x1, y2-y1); break;
       case 'highlight':
-        ctx.globalAlpha = 0.35; ctx.fillStyle = currentColor;
+        ctx.globalAlpha = currentOpacity || 0.35; ctx.fillStyle = currentColor;
         ctx.fillRect(x1, y1, x2-x1, y2-y1); ctx.globalAlpha = 1; break;
       case 'blur':
         ctx.fillStyle = 'rgba(128,128,128,0.4)'; ctx.fillRect(x1, y1, x2-x1, y2-y1);
@@ -598,7 +724,7 @@
     switch (currentTool) {
       case 'arrow': return { type: 'arrow', x1, y1, x2, y2, color: currentColor, lineWidth: currentLineWidth };
       case 'rectangle': return { type: 'rectangle', x: Math.min(x1,x2), y: Math.min(y1,y2), width: Math.abs(x2-x1), height: Math.abs(y2-y1), color: currentColor, lineWidth: currentLineWidth, filled: false, opacity: 0.3 };
-      case 'highlight': return { type: 'highlight', x: Math.min(x1,x2), y: Math.min(y1,y2), width: Math.abs(x2-x1), height: Math.abs(y2-y1), color: currentColor };
+      case 'highlight': return { type: 'highlight', x: Math.min(x1,x2), y: Math.min(y1,y2), width: Math.abs(x2-x1), height: Math.abs(y2-y1), color: currentColor, opacity: currentOpacity || 0.35 };
       case 'blur': return { type: 'blur', x: Math.min(x1,x2), y: Math.min(y1,y2), width: Math.abs(x2-x1), height: Math.abs(y2-y1), intensity: 10 };
       default: return null;
     }
@@ -715,6 +841,7 @@
     const ci = new Image();
     ci.onload = () => {
       originalImage = ci; annotationState = PageSnapAnnotations.createState();
+      zoomLevel = 1; panX = 0; panY = 0;
       fitImageToContainer(); updateUndoRedo();
       document.getElementById('imageInfo').textContent = `${sw} x ${sh}px`;
       showToast('Cropped');
@@ -785,12 +912,10 @@
   }
 
   async function exportImage(format) {
-    // If it's a graphic, download that
     if (lastGeneratedOutput?.graphicDataUrl && currentOutputMode === 'graphic') {
       const fn = `pagesnap_graphic_${new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)}.png`;
-      try {
-        await chrome.runtime.sendMessage({ action: 'downloadImage', dataUrl: lastGeneratedOutput.graphicDataUrl, filename: fn });
-      } catch(e) { downloadViaLink(lastGeneratedOutput.graphicDataUrl, fn); }
+      try { await chrome.runtime.sendMessage({ action: 'downloadImage', dataUrl: lastGeneratedOutput.graphicDataUrl, filename: fn }); }
+      catch(e) { downloadViaLink(lastGeneratedOutput.graphicDataUrl, fn); }
       showToast('Graphic saved');
       return;
     }
@@ -808,9 +933,8 @@
     }
     const ext = format === 'pdf' ? 'png' : format;
     const fn = `pagesnap_${new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)}.${ext}`;
-    try {
-      await chrome.runtime.sendMessage({ action: 'downloadImage', dataUrl, filename: fn });
-    } catch(e) { downloadViaLink(dataUrl, fn); }
+    try { await chrome.runtime.sendMessage({ action: 'downloadImage', dataUrl, filename: fn }); }
+    catch(e) { downloadViaLink(dataUrl, fn); }
     showToast(`${format.toUpperCase()} saved`);
   }
 
@@ -842,6 +966,8 @@
   // --- Keyboard Shortcuts ---
   function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
+      if (e.key === ' ') { spacePressed = true; e.preventDefault(); return; }
+
       const ti = document.getElementById('textInput');
       if (ti.style.display !== 'none') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -850,6 +976,11 @@
       if (ctrl && e.key === 'z' && !e.shiftKey) { e.preventDefault(); if (PageSnapAnnotations.undo(annotationState)) { redrawAnnotations(); updateUndoRedo(); } return; }
       if (ctrl && (e.key === 'Z' || (e.key === 'z' && e.shiftKey) || e.key === 'y')) { e.preventDefault(); if (PageSnapAnnotations.redo(annotationState)) { redrawAnnotations(); updateUndoRedo(); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && annotationState.selectedId) { e.preventDefault(); PageSnapAnnotations.removeAnnotation(annotationState, annotationState.selectedId); redrawAnnotations(); updateUndoRedo(); return; }
+
+      // Zoom shortcuts
+      if (ctrl && (e.key === '=' || e.key === '+')) { e.preventDefault(); setZoom(zoomLevel * 1.25); return; }
+      if (ctrl && e.key === '-') { e.preventDefault(); setZoom(zoomLevel / 1.25); return; }
+      if (ctrl && e.key === '0') { e.preventDefault(); zoomLevel = 1; panX = 0; panY = 0; applyZoom(); return; }
 
       switch (e.key.toLowerCase()) {
         case 'v': setTool('select'); break;
@@ -860,14 +991,19 @@
         case 'h': setTool('highlight'); break;
         case 'b': setTool('blur'); break;
         case 'd': setTool('freehand'); break;
+        case 'm': setTool('marker'); break;
+        case 'e': setTool('eraser'); break;
+        case 'p': setTool('pan'); break;
         case 'escape': if (cropMode) cancelCrop(); else closeEditor(); break;
       }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key === ' ') spacePressed = false;
     });
   }
 
   function closeEditor() {
-    // Must use '*' because parent window is the web page (different origin).
-    // Nonce authenticates the message so only our content script accepts it.
     window.parent.postMessage({ type: 'pagesnap-editor-close', nonce: EDITOR_NONCE }, '*');
   }
 
@@ -877,8 +1013,6 @@
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, 2000);
   }
-
-  function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', init) : init();
 })();

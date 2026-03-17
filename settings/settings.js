@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('jpgQuality').value = (settings.jpgQuality || 0.8) * 100;
   document.getElementById('jpgQualityValue').textContent = Math.round((settings.jpgQuality || 0.8) * 100) + '%';
   document.getElementById('defaultOutputMode').value = settings.defaultOutputMode || 'quickquote';
+  document.getElementById('voice').value = settings.voice || 'straight-shooter';
   document.getElementById('graphicStyle').value = settings.graphicStyle || 'modern-dark';
 
   // JPG quality slider
@@ -36,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       defaultFormat: document.getElementById('defaultFormat').value,
       jpgQuality: parseInt(document.getElementById('jpgQuality').value) / 100,
       defaultOutputMode: document.getElementById('defaultOutputMode').value,
+      voice: document.getElementById('voice').value,
       graphicStyle: document.getElementById('graphicStyle').value
     };
 

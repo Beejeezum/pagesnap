@@ -186,6 +186,9 @@ const PageSnapAnnotations = {
       case 'freehand':
         this._renderFreehand(ctx, ann, scale, isSelected);
         break;
+      case 'marker':
+        this._renderMarker(ctx, ann, scale, isSelected);
+        break;
     }
 
     if (isSelected) {
@@ -357,6 +360,24 @@ const PageSnapAnnotations = {
     ctx.stroke();
   },
 
+  _renderMarker(ctx, ann, scale) {
+    const { points, color, lineWidth, opacity } = ann;
+    if (!points || points.length < 2) return;
+
+    ctx.globalAlpha = opacity || 0.4;
+    ctx.strokeStyle = color || '#FFFF00';
+    ctx.lineWidth = (lineWidth || 12) * scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(points[0].x * scale, points[0].y * scale);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x * scale, points[i].y * scale);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  },
+
   _renderSelectionHandles(ctx, ann, scale) {
     const bounds = this._getAnnotationBounds(ann);
     if (!bounds) return;
@@ -418,6 +439,7 @@ const PageSnapAnnotations = {
       case 'text':
         return { x: ann.x, y: ann.y, width: ann.textWidth || 100, height: ann.textHeight || 20 };
       case 'freehand':
+      case 'marker':
         if (!ann.points || ann.points.length === 0) return null;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const p of ann.points) {

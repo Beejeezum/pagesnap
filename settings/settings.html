@@ -57,11 +57,30 @@
         <label for="defaultOutputMode">Default AI Output Mode</label>
         <select id="defaultOutputMode">
           <option value="quickquote">Quick Quote (Twitter/X)</option>
+          <option value="hottake">Hot Take</option>
           <option value="linkedin">LinkedIn Post</option>
-          <option value="blogseed">Blog Seed</option>
           <option value="thread">Thread Builder</option>
-          <option value="summary">Summary Card</option>
+          <option value="summary">Summary</option>
+          <option value="tldr">TL;DR</option>
+          <option value="bulletbrief">Bullet Brief</option>
+          <option value="newsletter">Newsletter Blurb</option>
+          <option value="blogseed">Blog Seed</option>
+          <option value="rewrite">Rewrite</option>
+          <option value="llmextract">LLM Extract</option>
         </select>
+      </div>
+
+      <div class="field">
+        <label for="voice">Default Voice / Tone</label>
+        <select id="voice">
+          <option value="straight-shooter">Straight Shooter (direct, no BS)</option>
+          <option value="witty">Witty & Sharp (clever, personality)</option>
+          <option value="professional">Professional (polished, authoritative)</option>
+          <option value="provocative">Provocative (contrarian, bold)</option>
+          <option value="academic">Academic (analytical, measured)</option>
+          <option value="casual">Casual (conversational, relaxed)</option>
+        </select>
+        <span class="help-text">Controls the writing style across all AI output modes.</span>
       </div>
 
       <div class="field">
@@ -75,6 +94,7 @@
           <option value="gradient-forest">Forest Gradient</option>
           <option value="bold-red">Bold Red</option>
           <option value="minimal">Minimal</option>
+          <option value="screenshot-overlay">Screenshot Overlay</option>
         </select>
       </div>
     </section>

@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS = {
   filenamePattern: '{domain}_{timestamp}',
   darkMode: 'auto',
   defaultOutputMode: 'quickquote',
+  voice: 'straight-shooter',
   graphicStyle: 'modern-dark',
   graphicRatio: '16:9'
 };
@@ -277,7 +278,7 @@ async function generateContent(content, outputMode, customPrompt) {
   }
 
   // Validate outputMode against allowed values
-  const validModes = ['quickquote', 'linkedin', 'blogseed', 'thread', 'summary', 'custom'];
+  const validModes = ['quickquote', 'hottake', 'tldr', 'bulletbrief', 'linkedin', 'blogseed', 'thread', 'summary', 'newsletter', 'rewrite', 'llmextract', 'custom'];
   if (outputMode && !validModes.includes(outputMode)) {
     return { error: 'Invalid output mode.' };
   }
@@ -285,7 +286,8 @@ async function generateContent(content, outputMode, customPrompt) {
   rateLimiter.recordCall();
 
   try {
-    const result = await PageSnapAI.generate(apiKey, customPrompt || '', content, outputMode);
+    const voice = settings?.voice || 'straight-shooter';
+    const result = await PageSnapAI.generate(apiKey, customPrompt || '', content, outputMode, { voice });
     return { result };
   } catch (err) {
     return { error: err.message };
