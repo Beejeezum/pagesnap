@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Populate fields
   document.getElementById('apiKey').value = settings.apiKey || '';
+  if (settings.apiKey && settings.apiKey.startsWith('sk-ant-')) {
+    document.getElementById('apiKey').placeholder = 'API key configured';
+  }
   document.getElementById('defaultFormat').value = settings.defaultFormat || 'png';
   document.getElementById('jpgQuality').value = (settings.jpgQuality || 0.8) * 100;
   document.getElementById('jpgQualityValue').textContent = Math.round((settings.jpgQuality || 0.8) * 100) + '%';

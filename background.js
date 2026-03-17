@@ -5,6 +5,13 @@
 
 importScripts('utils/ai-service.js', 'utils/swipefile.js');
 
+// Load local dev config if present (gitignored, contains API key for testing)
+try {
+  importScripts('config.local.js');
+} catch (e) {
+  // config.local.js doesn't exist - that's fine, user will set key in settings
+}
+
 // Default settings
 const DEFAULT_SETTINGS = {
   apiKey: '',
@@ -60,11 +67,28 @@ function isContentScript(sender) {
   return !!sender.tab;
 }
 
+// Get dev API key if config.local.js was loaded
+function getDevApiKey() {
+  return (typeof PAGESNAP_DEV_CONFIG !== 'undefined' && PAGESNAP_DEV_CONFIG.apiKey &&
+          PAGESNAP_DEV_CONFIG.apiKey !== 'YOUR_API_KEY_HERE')
+    ? PAGESNAP_DEV_CONFIG.apiKey : null;
+}
+
 // Initialize on install
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get('settings');
   if (!existing.settings) {
-    await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+    const defaults = { ...DEFAULT_SETTINGS };
+    const devKey = getDevApiKey();
+    if (devKey) defaults.apiKey = devKey;
+    await chrome.storage.local.set({ settings: defaults });
+  } else if (!existing.settings.apiKey) {
+    // Existing settings but no key - fill in dev key if available
+    const devKey = getDevApiKey();
+    if (devKey) {
+      existing.settings.apiKey = devKey;
+      await chrome.storage.local.set({ settings: existing.settings });
+    }
   }
 });
 
@@ -235,7 +259,7 @@ async function generateContent(content, outputMode, customPrompt) {
   }
 
   const { settings } = await chrome.storage.local.get('settings');
-  const apiKey = settings?.apiKey;
+  const apiKey = settings?.apiKey || getDevApiKey();
 
   if (!apiKey) {
     return { error: 'API key required. Open PageSnap settings to add your Claude API key.' };
