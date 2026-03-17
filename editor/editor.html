@@ -15,6 +15,7 @@
         <div class="toolbar-tabs">
           <button class="toolbar-tab active" data-panel="screenshot" id="screenshotTab">Screenshot</button>
           <button class="toolbar-tab" data-panel="content" id="contentTab">Content</button>
+          <button class="toolbar-tab" data-panel="video" id="videoTab" style="display:none">Video</button>
         </div>
       </div>
       <div class="toolbar-center" id="annotationTools">
@@ -244,6 +245,80 @@
       </div>
     </div>
 
+    <!-- Video Panel (YouTube) -->
+    <div class="panel video-panel" id="videoPanel" style="display:none">
+      <div class="video-panel-inner">
+        <!-- Video info header -->
+        <div class="video-header" id="videoHeader">
+          <div class="video-thumb-wrap" id="videoThumbWrap"></div>
+          <div class="video-meta">
+            <h3 id="videoTitle">--</h3>
+            <span class="video-channel" id="videoChannel">--</span>
+          </div>
+        </div>
+
+        <!-- Thumbnail tools -->
+        <div class="video-section">
+          <div class="section-header">Thumbnails</div>
+          <div class="thumb-grid" id="thumbGrid"></div>
+        </div>
+
+        <!-- Transcript -->
+        <div class="video-section">
+          <div class="section-header">
+            <span>Transcript</span>
+            <div class="transcript-actions">
+              <button class="small-btn" id="copyTranscript" title="Copy full transcript">Copy All</button>
+              <button class="small-btn" id="copyTimestamped" title="Copy with timestamps">Copy + Timestamps</button>
+            </div>
+          </div>
+          <div class="transcript-status" id="transcriptStatus">Loading transcript...</div>
+          <div class="transcript-container" id="transcriptContainer" style="display:none">
+            <div class="transcript-search">
+              <input type="text" id="transcriptSearch" placeholder="Search transcript..." class="custom-prompt">
+            </div>
+            <div class="transcript-list" id="transcriptList"></div>
+          </div>
+        </div>
+
+        <!-- Time range clipper -->
+        <div class="video-section">
+          <div class="section-header">Clip Range</div>
+          <div class="clip-range">
+            <div class="time-inputs">
+              <label>From</label>
+              <input type="text" id="clipStart" placeholder="0:00" class="time-input">
+              <label>To</label>
+              <input type="text" id="clipEnd" placeholder="0:00" class="time-input">
+              <button class="small-btn primary" id="clipExtract">Clip</button>
+            </div>
+            <div class="clip-preview" id="clipPreview" style="display:none">
+              <div class="clip-text" id="clipText"></div>
+              <div class="clip-actions">
+                <button class="small-btn" id="clipCopy">Copy Clip</button>
+                <button class="small-btn primary" id="clipToAI">Send to AI</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="video-section">
+          <div class="section-header">Quick Create from Video</div>
+          <div class="video-quick-actions">
+            <button class="video-action-btn" data-mode="quickquote" data-source="video">Quote</button>
+            <button class="video-action-btn" data-mode="hottake" data-source="video">Hot Take</button>
+            <button class="video-action-btn" data-mode="summary" data-source="video">Summary</button>
+            <button class="video-action-btn" data-mode="thread" data-source="video">Thread</button>
+            <button class="video-action-btn" data-mode="tldr" data-source="video">TL;DR</button>
+            <button class="video-action-btn" data-mode="bulletbrief" data-source="video">Bullets</button>
+            <button class="video-action-btn" data-mode="llmextract" data-source="video">LLM Extract</button>
+            <button class="video-action-btn" data-mode="newsletter" data-source="video">Newsletter</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Bottom export bar -->
     <div class="export-bar">
       <div class="export-left">
@@ -263,6 +338,7 @@
 
   <script src="../utils/annotations.js"></script>
   <script src="../utils/social-graphics.js"></script>
+  <script src="../utils/youtube.js"></script>
   <script src="editor.js"></script>
 </body>
 </html>

@@ -169,6 +169,9 @@ body {
 }
 
 .capture-btn svg { flex-shrink: 0; }
+.capture-btn.youtube-btn { border-color: rgba(255, 0, 0, 0.15); }
+.capture-btn.youtube-btn:hover { background: rgba(255, 0, 0, 0.04); border-color: rgba(255, 0, 0, 0.3); }
+.capture-btn.youtube-btn svg { color: #FF0000; }
 
 .create-icon {
   font-size: 18px;

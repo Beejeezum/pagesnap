@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PageSnap",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Capture content. Repurpose it. Screenshot, social posts, blog ideas, shareable graphics — all from one click.",
   "permissions": [
     "activeTab",
@@ -42,7 +42,8 @@
         "editor/editor.css",
         "editor/editor.js",
         "utils/annotations.js",
-        "utils/social-graphics.js"
+        "utils/social-graphics.js",
+        "utils/youtube.js"
       ],
       "matches": ["<all_urls>"]
     }

@@ -475,6 +475,7 @@
       case 'scrollrange': return startScrollRange();
       case 'content': return openEditorWithContent(null, outputMode || 'summary');
       case 'create': return openEditorWithContent(null, outputMode || 'quickquote');
+      case 'youtube': return openEditorWithContent(null, null); // opens editor, video tab auto-detected
       default: return { error: 'Unknown mode: ' + mode };
     }
   }
@@ -650,9 +651,27 @@
     iframe.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;';
 
     iframe.onload = () => {
-      // Must use '*' as target origin because content script runs in the page's
-      // browsing context (e.g. https://example.com) while the iframe is
-      // chrome-extension://. The nonce authenticates the message instead.
+      // Detect YouTube and extract video data
+      let youtubeData = null;
+      const ytMatch = window.location.href.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      if (ytMatch) {
+        const videoId = ytMatch[1];
+        youtubeData = {
+          videoId,
+          url: window.location.href,
+          title: document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string')?.textContent?.trim() || document.title,
+          channel: document.querySelector('#channel-name a, ytd-channel-name a')?.textContent?.trim() || '',
+          description: document.querySelector('#description-inner, ytd-text-inline-expander > yt-attributed-string')?.textContent?.trim()?.substring(0, 2000) || '',
+          thumbnails: {
+            maxres: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+            high: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+            medium: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+          },
+          currentTime: document.querySelector('video')?.currentTime || 0,
+          duration: document.querySelector('video')?.duration || 0
+        };
+      }
+
       iframe.contentWindow.postMessage({
         type: 'pagesnap-load',
         nonce: nonce,
@@ -660,7 +679,8 @@
         content: extractedContent,
         pageUrl: window.location.href,
         pageTitle: document.title,
-        initialOutputMode: initialOutputMode || null
+        initialOutputMode: initialOutputMode || null,
+        youtube: youtubeData
       }, '*');
     };
 

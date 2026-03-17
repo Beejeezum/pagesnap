@@ -25,6 +25,11 @@
   let lastGeneratedOutput = null;
   let hasScreenshot = false;
 
+  // YouTube state
+  let youtubeData = null;
+  let transcriptSegments = [];
+  let clipContent = null;
+
   // Zoom/pan state
   let zoomLevel = 1; // 1 = fit-to-view
   let panX = 0, panY = 0;
@@ -52,6 +57,7 @@
     setupOutputModes();
     setupGraphicControls();
     setupZoomControls();
+    setupVideoPanel();
     loadVoiceSetting();
 
     window.addEventListener('message', (e) => {
@@ -71,6 +77,13 @@
         }
         pageUrl = e.data.pageUrl || '';
         pageTitle = e.data.pageTitle || '';
+
+        // YouTube detection
+        if (e.data.youtube) {
+          youtubeData = e.data.youtube;
+          initVideoPanel(youtubeData);
+        }
+
         if (e.data.initialOutputMode) {
           setOutputMode(e.data.initialOutputMode);
           if (pageContent) setTimeout(() => generateContent(), 300);
@@ -165,22 +178,27 @@
 
     const sp = document.getElementById('screenshotPanel');
     const cp = document.getElementById('contentPanel');
+    const vp = document.getElementById('videoPanel');
+
+    sp.style.display = 'none'; cp.style.display = 'none'; vp.style.display = 'none';
+    document.getElementById('annotationTools').style.display = 'none';
 
     if (panel === 'screenshot') {
       sp.classList.add('active');
       sp.style.display = 'flex';
-      cp.style.display = 'none';
       document.getElementById('annotationTools').style.display = 'flex';
-    } else {
-      sp.style.display = 'none';
+    } else if (panel === 'content') {
       cp.style.display = 'flex';
-      document.getElementById('annotationTools').style.display = 'none';
-    }
-
-    if (hasScreenshot && panel === 'content') {
-      sp.style.display = 'flex';
-      cp.style.display = 'flex';
-      document.getElementById('annotationTools').style.display = 'flex';
+      if (hasScreenshot) {
+        sp.style.display = 'flex';
+        document.getElementById('annotationTools').style.display = 'flex';
+      }
+    } else if (panel === 'video') {
+      vp.style.display = 'flex';
+      if (hasScreenshot) {
+        sp.style.display = 'flex';
+        document.getElementById('annotationTools').style.display = 'flex';
+      }
     }
   }
 
@@ -1001,6 +1019,253 @@
     document.addEventListener('keyup', (e) => {
       if (e.key === ' ') spacePressed = false;
     });
+  }
+
+  // --- Video Panel (YouTube) ---
+  function setupVideoPanel() {
+    document.getElementById('copyTranscript')?.addEventListener('click', () => {
+      if (!transcriptSegments.length) return;
+      const text = transcriptSegments.map(s => s.text).join(' ');
+      navigator.clipboard.writeText(text).then(() => showToast('Transcript copied'));
+    });
+    document.getElementById('copyTimestamped')?.addEventListener('click', () => {
+      if (!transcriptSegments.length) return;
+      const text = transcriptSegments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
+      navigator.clipboard.writeText(text).then(() => showToast('Timestamped transcript copied'));
+    });
+
+    // Clip range
+    document.getElementById('clipExtract')?.addEventListener('click', extractClip);
+    document.getElementById('clipCopy')?.addEventListener('click', () => {
+      if (clipContent) navigator.clipboard.writeText(clipContent).then(() => showToast('Clip copied'));
+    });
+    document.getElementById('clipToAI')?.addEventListener('click', () => {
+      if (!clipContent) return;
+      // Create a virtual content object from the clip and switch to content tab
+      pageContent = buildVideoContent(clipContent);
+      populateContentPanel(pageContent);
+      switchPanel('content');
+      showToast('Clip sent to content panel — pick a mode and generate');
+    });
+
+    // Transcript search
+    let searchTimeout;
+    document.getElementById('transcriptSearch')?.addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => filterTranscript(e.target.value.trim()), 200);
+    });
+
+    // Quick action buttons
+    document.querySelectorAll('.video-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        if (!transcriptSegments.length) { showToast('No transcript loaded'); return; }
+        // Use full transcript as content
+        pageContent = buildVideoContent(transcriptSegments.map(s => s.text).join(' '));
+        populateContentPanel(pageContent);
+        switchPanel('content');
+        setOutputMode(mode);
+        setTimeout(() => generateContent(), 300);
+      });
+    });
+  }
+
+  async function initVideoPanel(ytData) {
+    // Show the video tab
+    document.getElementById('videoTab').style.display = 'inline-flex';
+
+    // Populate header
+    document.getElementById('videoTitle').textContent = ytData.title || 'YouTube Video';
+    document.getElementById('videoChannel').textContent = ytData.channel || '';
+
+    // Thumbnail
+    const thumbWrap = document.getElementById('videoThumbWrap');
+    thumbWrap.textContent = '';
+    const thumbImg = document.createElement('img');
+    thumbImg.src = ytData.thumbnails.medium;
+    thumbImg.alt = 'Video thumbnail';
+    thumbWrap.appendChild(thumbImg);
+
+    // Thumbnail grid
+    const thumbGrid = document.getElementById('thumbGrid');
+    thumbGrid.textContent = '';
+    const thumbSizes = [
+      { key: 'maxres', label: 'Max' },
+      { key: 'high', label: 'HQ' },
+      { key: 'medium', label: 'MQ' }
+    ];
+    for (const { key, label } of thumbSizes) {
+      const url = ytData.thumbnails[key];
+      if (!url) continue;
+      const item = document.createElement('div');
+      item.className = 'thumb-item';
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = label + ' thumbnail';
+      const lbl = document.createElement('div');
+      lbl.className = 'thumb-label';
+      lbl.textContent = label;
+      item.appendChild(img);
+      item.appendChild(lbl);
+      item.addEventListener('click', async () => {
+        try {
+          const r = await fetch(url);
+          const blob = await r.blob();
+          await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+          showToast(label + ' thumbnail copied');
+        } catch(e) {
+          // Fallback: copy URL
+          navigator.clipboard.writeText(url).then(() => showToast('Thumbnail URL copied'));
+        }
+      });
+      thumbGrid.appendChild(item);
+    }
+
+    // Set clip end time to video duration
+    if (ytData.duration > 0) {
+      const fmt = PageSnapYouTube._formatDuration(ytData.duration);
+      document.getElementById('clipEnd').placeholder = fmt;
+    }
+
+    // Load transcript
+    const status = document.getElementById('transcriptStatus');
+    status.textContent = 'Loading transcript...';
+    try {
+      const result = await chrome.runtime.sendMessage({
+        action: 'youtubeGetTranscript',
+        videoId: ytData.videoId
+      });
+      if (result.error) {
+        status.textContent = result.error;
+      } else if (result.segments && result.segments.length > 0) {
+        transcriptSegments = result.segments;
+        status.style.display = 'none';
+        document.getElementById('transcriptContainer').style.display = 'flex';
+        renderTranscript(transcriptSegments);
+
+        // Also set page content from transcript so AI modes work immediately
+        if (!pageContent || !pageContent.content?.text) {
+          pageContent = buildVideoContent(transcriptSegments.map(s => s.text).join(' '));
+          populateContentPanel(pageContent);
+        }
+      } else {
+        status.textContent = 'No captions found for this video.';
+      }
+    } catch (e) {
+      status.textContent = 'Failed to load transcript: ' + e.message;
+    }
+  }
+
+  function buildVideoContent(transcriptText) {
+    return {
+      url: youtubeData?.url || pageUrl,
+      domain: 'youtube.com',
+      title: youtubeData?.title || pageTitle,
+      description: youtubeData?.description || '',
+      author: youtubeData?.channel || '',
+      publishDate: '',
+      content: {
+        text: transcriptText,
+        html: '',
+        wordCount: transcriptText.split(/\s+/).length,
+        readingTime: Math.ceil(transcriptText.split(/\s+/).length / 200)
+      },
+      excerpt: transcriptText.substring(0, 300) + '...',
+      images: [],
+      ogImage: youtubeData?.thumbnails?.maxres || '',
+      tags: [],
+      wordCount: transcriptText.split(/\s+/).length,
+      readingTime: Math.ceil(transcriptText.split(/\s+/).length / 200),
+      timestamp: new Date().toISOString(),
+      isVideo: true
+    };
+  }
+
+  function renderTranscript(segments) {
+    const list = document.getElementById('transcriptList');
+    list.textContent = '';
+    for (const seg of segments) {
+      const row = document.createElement('div');
+      row.className = 'transcript-segment';
+      row.dataset.start = seg.start;
+
+      const ts = document.createElement('span');
+      ts.className = 'transcript-ts';
+      ts.textContent = seg.timestamp;
+
+      const text = document.createElement('span');
+      text.className = 'transcript-text';
+      text.textContent = seg.text;
+
+      row.appendChild(ts);
+      row.appendChild(text);
+
+      // Click timestamp to set clip start
+      ts.addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.getElementById('clipStart').value = seg.timestamp;
+        showToast('Clip start: ' + seg.timestamp);
+      });
+
+      // Click text to copy just that segment
+      row.addEventListener('click', () => {
+        navigator.clipboard.writeText(seg.text).then(() => showToast('Segment copied'));
+      });
+
+      // Double click to set as clip end
+      row.addEventListener('dblclick', () => {
+        document.getElementById('clipEnd').value = PageSnapYouTube._formatDuration(seg.end);
+        showToast('Clip end: ' + PageSnapYouTube._formatDuration(seg.end));
+      });
+
+      list.appendChild(row);
+    }
+  }
+
+  function filterTranscript(query) {
+    const rows = document.querySelectorAll('.transcript-segment');
+    if (!query) { rows.forEach(r => { r.style.display = 'flex'; r.classList.remove('highlight'); }); return; }
+    const q = query.toLowerCase();
+    rows.forEach(row => {
+      const text = row.querySelector('.transcript-text').textContent.toLowerCase();
+      if (text.includes(q)) {
+        row.style.display = 'flex';
+        row.classList.add('highlight');
+      } else {
+        row.style.display = 'none';
+        row.classList.remove('highlight');
+      }
+    });
+  }
+
+  function extractClip() {
+    if (!transcriptSegments.length) { showToast('No transcript loaded'); return; }
+    const startStr = document.getElementById('clipStart').value.trim();
+    const endStr = document.getElementById('clipEnd').value.trim();
+    if (!startStr || !endStr) { showToast('Enter start and end times'); return; }
+
+    const startSec = PageSnapYouTube.parseTimestamp(startStr);
+    const endSec = PageSnapYouTube.parseTimestamp(endStr);
+    if (endSec <= startSec) { showToast('End must be after start'); return; }
+
+    const clipped = transcriptSegments
+      .filter(s => s.start >= startSec && s.start <= endSec)
+      .map(s => s.text)
+      .join(' ');
+
+    if (!clipped) { showToast('No content in that range'); return; }
+
+    clipContent = clipped;
+    document.getElementById('clipPreview').style.display = 'block';
+    document.getElementById('clipText').textContent = clipped;
+
+    // Highlight clipped segments in transcript
+    document.querySelectorAll('.transcript-segment').forEach(row => {
+      const t = parseFloat(row.dataset.start);
+      row.classList.toggle('selected', t >= startSec && t <= endSec);
+    });
+
+    showToast(`Clipped ${PageSnapYouTube._formatDuration(startSec)} → ${PageSnapYouTube._formatDuration(endSec)}`);
   }
 
   function closeEditor() {

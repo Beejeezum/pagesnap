@@ -9,7 +9,18 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCreateButtons();
   setupLibrary();
   setupSettings();
+  detectYouTube();
 });
+
+// --- YouTube Detection ---
+async function detectYouTube() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.url && (tab.url.includes('youtube.com/watch') || tab.url.includes('youtu.be/'))) {
+      document.getElementById('youtubeBtn').style.display = 'flex';
+    }
+  } catch (e) {}
+}
 
 // --- Tabs ---
 function setupTabs() {

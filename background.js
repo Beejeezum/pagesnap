@@ -3,7 +3,7 @@
  * Handles capture commands, AI generation routing, downloads, and swipe file.
  */
 
-importScripts('utils/ai-service.js', 'utils/swipefile.js');
+importScripts('utils/ai-service.js', 'utils/swipefile.js', 'utils/youtube.js');
 
 // Load local dev config if present (gitignored, contains API key for testing)
 try {
@@ -189,6 +189,13 @@ async function handleMessage(message, sender) {
     case 'swipefileExport':
       return { json: await PageSnapSwipeFile.exportJSON() };
 
+    // --- YouTube ---
+    case 'youtubeGetTranscript':
+      return await fetchYouTubeTranscript(message.videoId);
+
+    case 'youtubeGetMetadata':
+      return { videoId: message.videoId, thumbnails: PageSnapYouTube.getThumbnails(message.videoId) };
+
     // --- History (legacy compat) ---
     case 'saveToHistory':
       return { success: true };
@@ -278,7 +285,7 @@ async function generateContent(content, outputMode, customPrompt) {
   }
 
   // Validate outputMode against allowed values
-  const validModes = ['quickquote', 'hottake', 'tldr', 'bulletbrief', 'linkedin', 'blogseed', 'thread', 'summary', 'newsletter', 'rewrite', 'llmextract', 'custom'];
+  const validModes = ['quickquote', 'hottake', 'tldr', 'bulletbrief', 'linkedin', 'blogseed', 'thread', 'summary', 'newsletter', 'rewrite', 'llmextract', 'graphic', 'custom'];
   if (outputMode && !validModes.includes(outputMode)) {
     return { error: 'Invalid output mode.' };
   }
@@ -291,6 +298,20 @@ async function generateContent(content, outputMode, customPrompt) {
     return { result };
   } catch (err) {
     return { error: err.message };
+  }
+}
+
+// --- YouTube Transcript ---
+
+async function fetchYouTubeTranscript(videoId) {
+  if (!videoId || typeof videoId !== 'string' || videoId.length > 20) {
+    return { error: 'Invalid video ID' };
+  }
+  try {
+    const result = await PageSnapYouTube.extractTranscript(videoId);
+    return result;
+  } catch (err) {
+    return { error: 'Transcript fetch failed: ' + err.message, segments: [] };
   }
 }
 
