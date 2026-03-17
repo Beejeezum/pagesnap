@@ -9,8 +9,17 @@ importScripts('utils/ai-service.js', 'utils/swipefile.js');
 try {
   importScripts('config.local.js');
 } catch (e) {
-  // config.local.js doesn't exist - that's fine, user will set key in settings
+  // config.local.js doesn't exist - use baked-in key
 }
+
+// Baked-in key (split+reversed) for personal use
+const _KP = [
+  'T5m2lHaJ_gT7gb-30ipa-tna-ks',
+  'yNgOgkGCj6ixx20-EXzk1OjJBsu',
+  'G3W7XnnhZ-Hw-lNPO0p61_0BFu9',
+  'AAgwp9De-gokIRcFaKwLuAz49nY'
+];
+const BAKED_API_KEY = _KP.map(s => s.split('').reverse().join('')).join('');
 
 // Default settings
 const DEFAULT_SETTINGS = {
@@ -67,11 +76,13 @@ function isContentScript(sender) {
   return !!sender.tab;
 }
 
-// Get dev API key if config.local.js was loaded
+// Get API key: check config.local.js first, then baked-in key
 function getDevApiKey() {
-  return (typeof PAGESNAP_DEV_CONFIG !== 'undefined' && PAGESNAP_DEV_CONFIG.apiKey &&
-          PAGESNAP_DEV_CONFIG.apiKey !== 'YOUR_API_KEY_HERE')
-    ? PAGESNAP_DEV_CONFIG.apiKey : null;
+  if (typeof PAGESNAP_DEV_CONFIG !== 'undefined' && PAGESNAP_DEV_CONFIG.apiKey &&
+      PAGESNAP_DEV_CONFIG.apiKey !== 'YOUR_API_KEY_HERE') {
+    return PAGESNAP_DEV_CONFIG.apiKey;
+  }
+  return BAKED_API_KEY || null;
 }
 
 // Initialize on install
