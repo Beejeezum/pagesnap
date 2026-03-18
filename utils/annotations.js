@@ -323,11 +323,11 @@ const PageSnapAnnotations = {
   },
 
   _renderHighlight(ctx, ann, scale) {
-    const { x, y, width, height, color } = ann;
+    const { x, y, width, height, color, opacity } = ann;
     const sx = x * scale, sy = y * scale;
     const sw = width * scale, sh = height * scale;
 
-    ctx.globalAlpha = 0.35;
+    ctx.globalAlpha = opacity || 0.35;
     ctx.fillStyle = color || '#FFFF00';
     ctx.fillRect(sx, sy, sw, sh);
     ctx.globalAlpha = 1;

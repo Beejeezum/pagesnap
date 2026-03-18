@@ -217,10 +217,36 @@ function renderSearchResults(items) {
     title.textContent = item.title || 'Untitled';
     const domain = document.createElement('div');
     domain.className = 'library-item-domain';
-    domain.textContent = item.domain || '';
+    domain.textContent = (item.domain || '') + (item.timestamp ? ' \u00B7 ' + timeAgo(item.timestamp) : '');
     content.appendChild(title);
     content.appendChild(domain);
+
+    const fav = document.createElement('button');
+    fav.className = 'library-item-fav' + (item.favorite ? ' active' : '');
+    fav.dataset.id = item.id;
+    fav.title = 'Toggle favorite';
+    fav.textContent = item.favorite ? '\u2605' : '\u2606';
+
     el.appendChild(content);
+    el.appendChild(fav);
+
+    content.addEventListener('click', () => {
+      if (item.url) chrome.tabs.create({ url: item.url });
+    });
+
+    fav.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await chrome.runtime.sendMessage({ action: 'swipefileToggleFavorite', id: item.id });
+      // Re-run the search to refresh results
+      const query = document.getElementById('librarySearch').value.trim();
+      if (query) {
+        const response = await chrome.runtime.sendMessage({ action: 'swipefileSearch', query });
+        renderSearchResults(response?.items || []);
+      } else {
+        loadLibrary(document.querySelector('.filter-btn.active')?.dataset.filter);
+      }
+    });
+
     list.appendChild(el);
   });
 }

@@ -316,7 +316,13 @@ async function fetchYouTubeTranscript(videoId) {
     const m = html.match(/"captionTracks":\s*(\[.*?\])/);
     if (!m) return { error: 'No captions available for this video.', segments: [] };
 
-    const tracks = JSON.parse(m[1]);
+    let tracks;
+    try { tracks = JSON.parse(m[1]); } catch (e) {
+      return { error: 'Failed to parse caption data.', segments: [] };
+    }
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      return { error: 'No caption tracks found.', segments: [] };
+    }
     const en = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
     const track = en || tracks[0];
     if (!track?.baseUrl) return { error: 'No caption URL found.', segments: [] };

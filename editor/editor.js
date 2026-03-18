@@ -1129,7 +1129,11 @@
 
     // Load transcript directly (no background service worker needed)
     const status = document.getElementById('transcriptStatus');
-    status.textContent = 'Loading transcript...';
+    status.textContent = '';
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner';
+    status.appendChild(spinner);
+    status.appendChild(document.createTextNode('Loading transcript...'));
     try {
       let captionUrl = ytData.captionUrl || null;
 
@@ -1151,7 +1155,8 @@
       }
 
       if (!captionUrl) {
-        status.textContent = 'No captions available for this video.';
+        status.textContent = '';
+        status.appendChild(document.createTextNode('No captions available. This video may not have subtitles enabled.'));
       } else {
         const resp = await fetch(captionUrl);
         const xmlText = await resp.text();
@@ -1185,17 +1190,43 @@
 
         if (segments.length > 0) {
           transcriptSegments = segments;
-          status.style.display = 'none';
+          // Show stats instead of loading message
+          const fullText = segments.map(s => s.text).join(' ');
+          const wordCount = fullText.split(/\s+/).length;
+          const lastSeg = segments[segments.length - 1];
+          const duration = lastSeg ? lastSeg.end : 0;
+          const h = Math.floor(duration / 3600);
+          const m = Math.floor((duration % 3600) / 60);
+          const s = Math.floor(duration % 60);
+          const durStr = h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+
+          status.textContent = '';
+          status.className = 'transcript-stats';
+          status.innerHTML = '';
+          const makeSpan = (label, value) => {
+            const sp = document.createElement('span');
+            const val = document.createElement('span');
+            val.className = 'stat-value';
+            val.textContent = value;
+            sp.appendChild(val);
+            sp.appendChild(document.createTextNode(' ' + label));
+            return sp;
+          };
+          status.appendChild(makeSpan('segments', segments.length.toLocaleString()));
+          status.appendChild(makeSpan('words', wordCount.toLocaleString()));
+          status.appendChild(makeSpan('duration', durStr));
+
           document.getElementById('transcriptContainer').style.display = 'flex';
           renderTranscript(transcriptSegments);
 
           // Also set page content from transcript so AI modes work immediately
           if (!pageContent || !pageContent.content?.text) {
-            pageContent = buildVideoContent(transcriptSegments.map(s => s.text).join(' '));
+            pageContent = buildVideoContent(fullText);
             populateContentPanel(pageContent);
           }
         } else {
-          status.textContent = 'No captions found for this video.';
+          status.textContent = '';
+          status.appendChild(document.createTextNode('Caption data found but no text segments parsed. Try refreshing the YouTube page.'));
         }
       }
     } catch (e) {

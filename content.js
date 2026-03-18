@@ -634,7 +634,11 @@
   // Editor + Output Panel
   // =========================================================================
 
+  let _editorCleanup = null;
+
   function openEditorWithContent(screenshotDataUrl, initialOutputMode) {
+    // Clean up previous editor listeners before removing
+    if (_editorCleanup) { _editorCleanup(); _editorCleanup = null; }
     const existing = document.getElementById('pagesnap-editor-container');
     if (existing) existing.remove();
 
@@ -725,6 +729,10 @@
     };
     window.addEventListener('message', onMessage);
     document.addEventListener('keydown', onKey);
+    _editorCleanup = () => {
+      window.removeEventListener('message', onMessage);
+      document.removeEventListener('keydown', onKey);
+    };
 
     // Save to swipe file
     saveToSwipeFile(screenshotDataUrl);
