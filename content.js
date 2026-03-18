@@ -656,8 +656,29 @@
       const ytMatch = window.location.href.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
       if (ytMatch) {
         const videoId = ytMatch[1];
+
+        // Extract caption URL directly from page scripts (DOM is available here)
+        let captionUrl = null;
+        try {
+          const scripts = document.querySelectorAll('script');
+          for (const script of scripts) {
+            const text = script.textContent;
+            if (text.includes('captionTracks')) {
+              const match = text.match(/"captionTracks":\s*(\[.*?\])/);
+              if (match) {
+                const tracks = JSON.parse(match[1]);
+                const en = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
+                const track = en || tracks[0];
+                if (track?.baseUrl) captionUrl = track.baseUrl;
+              }
+              break;
+            }
+          }
+        } catch (e) {}
+
         youtubeData = {
           videoId,
+          captionUrl,
           url: window.location.href,
           title: document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string')?.textContent?.trim() || document.title,
           channel: document.querySelector('#channel-name a, ytd-channel-name a')?.textContent?.trim() || '',

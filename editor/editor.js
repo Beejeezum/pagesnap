@@ -1127,29 +1127,76 @@
       document.getElementById('clipEnd').placeholder = fmt;
     }
 
-    // Load transcript
+    // Load transcript directly (no background service worker needed)
     const status = document.getElementById('transcriptStatus');
     status.textContent = 'Loading transcript...';
     try {
-      const result = await chrome.runtime.sendMessage({
-        action: 'youtubeGetTranscript',
-        videoId: ytData.videoId
-      });
-      if (result.error) {
-        status.textContent = result.error;
-      } else if (result.segments && result.segments.length > 0) {
-        transcriptSegments = result.segments;
-        status.style.display = 'none';
-        document.getElementById('transcriptContainer').style.display = 'flex';
-        renderTranscript(transcriptSegments);
+      let captionUrl = ytData.captionUrl || null;
 
-        // Also set page content from transcript so AI modes work immediately
-        if (!pageContent || !pageContent.content?.text) {
-          pageContent = buildVideoContent(transcriptSegments.map(s => s.text).join(' '));
-          populateContentPanel(pageContent);
-        }
+      // If content script didn't find caption URL, try fetching the watch page
+      if (!captionUrl) {
+        try {
+          const resp = await fetch('https://www.youtube.com/watch?v=' + ytData.videoId, {
+            headers: { 'Accept-Language': 'en-US,en' }
+          });
+          const html = await resp.text();
+          const m = html.match(/"captionTracks":\s*(\[.*?\])/);
+          if (m) {
+            const tracks = JSON.parse(m[1]);
+            const en = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
+            const track = en || tracks[0];
+            if (track?.baseUrl) captionUrl = track.baseUrl;
+          }
+        } catch (e) {}
+      }
+
+      if (!captionUrl) {
+        status.textContent = 'No captions available for this video.';
       } else {
-        status.textContent = 'No captions found for this video.';
+        const resp = await fetch(captionUrl);
+        const xmlText = await resp.text();
+        // Parse caption XML with regex (no DOMParser needed)
+        const segments = [];
+        const re = /<text\s+start="([^"]*)"(?:\s+dur="([^"]*)")?[^>]*>([\s\S]*?)<\/text>/g;
+        let match;
+        while ((match = re.exec(xmlText)) !== null) {
+          const start = parseFloat(match[1] || 0);
+          const dur = parseFloat(match[2] || 0);
+          // Decode HTML entities
+          let text = match[3]
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'")
+            .replace(/<[^>]+>/g, '') // strip any nested tags
+            .trim();
+          if (text) {
+            const h = Math.floor(start / 3600);
+            const m = Math.floor((start % 3600) / 60);
+            const s = Math.floor(start % 60);
+            const timestamp = h > 0
+              ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+              : `${m}:${String(s).padStart(2,'0')}`;
+            segments.push({ start, end: start + dur, duration: dur, text, timestamp });
+          }
+        }
+
+        if (segments.length > 0) {
+          transcriptSegments = segments;
+          status.style.display = 'none';
+          document.getElementById('transcriptContainer').style.display = 'flex';
+          renderTranscript(transcriptSegments);
+
+          // Also set page content from transcript so AI modes work immediately
+          if (!pageContent || !pageContent.content?.text) {
+            pageContent = buildVideoContent(transcriptSegments.map(s => s.text).join(' '));
+            populateContentPanel(pageContent);
+          }
+        } else {
+          status.textContent = 'No captions found for this video.';
+        }
       }
     } catch (e) {
       status.textContent = 'Failed to load transcript: ' + e.message;

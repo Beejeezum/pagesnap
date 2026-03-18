@@ -308,8 +308,41 @@ async function fetchYouTubeTranscript(videoId) {
     return { error: 'Invalid video ID' };
   }
   try {
-    const result = await PageSnapYouTube.extractTranscript(videoId);
-    return result;
+    // Fetch the watch page and extract caption URL via regex (no DOM needed)
+    const resp = await fetch('https://www.youtube.com/watch?v=' + videoId, {
+      headers: { 'Accept-Language': 'en-US,en' }
+    });
+    const html = await resp.text();
+    const m = html.match(/"captionTracks":\s*(\[.*?\])/);
+    if (!m) return { error: 'No captions available for this video.', segments: [] };
+
+    const tracks = JSON.parse(m[1]);
+    const en = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
+    const track = en || tracks[0];
+    if (!track?.baseUrl) return { error: 'No caption URL found.', segments: [] };
+
+    const capResp = await fetch(track.baseUrl);
+    const xmlText = await capResp.text();
+
+    // Parse XML with regex (no DOMParser in service worker)
+    const segments = [];
+    const re = /<text\s+start="([^"]*)"(?:\s+dur="([^"]*)")?[^>]*>([\s\S]*?)<\/text>/g;
+    let match;
+    while ((match = re.exec(xmlText)) !== null) {
+      const start = parseFloat(match[1] || 0);
+      const dur = parseFloat(match[2] || 0);
+      let text = match[3]
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+        .replace(/<[^>]+>/g, '').trim();
+      if (text) {
+        segments.push({
+          start, end: start + dur, duration: dur, text,
+          timestamp: PageSnapYouTube._formatDuration(start)
+        });
+      }
+    }
+    return { segments, error: null };
   } catch (err) {
     return { error: 'Transcript fetch failed: ' + err.message, segments: [] };
   }
