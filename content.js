@@ -350,7 +350,8 @@
         window.scrollTo(origX, origY);
       }
 
-      const full = await Stitch.stitchCaptures(captures, window.innerWidth, y + height - captures[0].y + vpH, dpr);
+      if (captures.length === 0) return null;
+      const full = await Stitch.stitchCaptures(captures, window.innerWidth, height, dpr);
       return await this._cropDataUrl(full, x * dpr, (y - captures[0].y) * dpr, width * dpr, height * dpr, width, height);
     },
 
@@ -434,7 +435,7 @@
     },
 
     async _cropDataUrl(dataUrl, sx, sy, sw, sh, dw, dh) {
-      return new Promise(resolve => {
+      return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
           const c = document.createElement('canvas');
@@ -442,6 +443,7 @@
           c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
           resolve(c.toDataURL('image/png'));
         };
+        img.onerror = () => reject(new Error('Failed to load image for cropping'));
         img.src = dataUrl;
       });
     }
@@ -706,7 +708,7 @@
         pageTitle: document.title,
         initialOutputMode: initialOutputMode || null,
         youtube: youtubeData
-      }, '*');
+      }, chrome.runtime.getURL(''));
     };
 
     container.appendChild(iframe);
