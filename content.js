@@ -708,7 +708,7 @@
         pageTitle: document.title,
         initialOutputMode: initialOutputMode || null,
         youtube: youtubeData
-      }, chrome.runtime.getURL(''));
+      }, EXTENSION_ORIGIN);
     };
 
     container.appendChild(iframe);

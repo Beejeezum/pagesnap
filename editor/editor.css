@@ -13,6 +13,7 @@
   --accent-solid: #4F46E5;
   --border: rgba(255,255,255,0.1);
   --input-bg: rgba(255,255,255,0.06);
+  --bg-secondary: rgba(255,255,255,0.04);
 }
 
 @media (prefers-color-scheme: light) {
@@ -30,6 +31,7 @@
     --accent-solid: #4F46E5;
     --border: rgba(0,0,0,0.1);
     --input-bg: #F3F4F6;
+    --bg-secondary: #F9FAFB;
   }
 }
 

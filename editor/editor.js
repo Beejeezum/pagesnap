@@ -217,10 +217,19 @@
     if (fullText && fullText.length > 100) {
       const toggleWrap = document.getElementById('contentFullTextToggle');
       const textEl = document.getElementById('contentFullText');
-      const toggleBtn = document.getElementById('toggleFullText');
-      const copyBtn = document.getElementById('copyFullText');
       toggleWrap.style.display = 'flex';
       textEl.textContent = fullText;
+      textEl.style.display = 'none';
+
+      // Replace buttons to avoid duplicate listeners on repeated calls
+      const oldToggle = document.getElementById('toggleFullText');
+      const toggleBtn = oldToggle.cloneNode(true);
+      oldToggle.replaceWith(toggleBtn);
+      toggleBtn.textContent = 'Show Full Text';
+
+      const oldCopy = document.getElementById('copyFullText');
+      const copyBtn = oldCopy.cloneNode(true);
+      oldCopy.replaceWith(copyBtn);
 
       toggleBtn.addEventListener('click', () => {
         const visible = textEl.style.display !== 'none';
@@ -393,27 +402,27 @@
           customPrompt: ''
         });
         const item = document.getElementById('batch-' + mode);
+        if (!item) continue;
         const body = item.querySelector('.batch-item-body');
         const copyBtn = item.querySelector('.batch-copy-btn');
-        body.classList.remove('loading');
+        if (body) body.classList.remove('loading');
         if (response.error) {
-          body.textContent = 'Error: ' + response.error;
-          body.style.color = '#EF4444';
+          if (body) { body.textContent = 'Error: ' + response.error; body.style.color = '#EF4444'; }
         } else {
-          renderFormattedOutput(body, response.result.formatted);
+          if (body) renderFormattedOutput(body, response.result.formatted);
           batchResults.push({ mode, label, text: response.result.copyText || response.result.raw });
-          copyBtn.style.display = 'inline-block';
-          copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(response.result.copyText || response.result.raw);
-            showToast(label + ' copied');
-          });
+          if (copyBtn) {
+            copyBtn.style.display = 'inline-block';
+            copyBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(response.result.copyText || response.result.raw);
+              showToast(label + ' copied');
+            });
+          }
         }
       } catch (err) {
         const item = document.getElementById('batch-' + mode);
-        const body = item.querySelector('.batch-item-body');
-        body.classList.remove('loading');
-        body.textContent = 'Failed: ' + err.message;
-        body.style.color = '#EF4444';
+        const body = item?.querySelector('.batch-item-body');
+        if (body) { body.classList.remove('loading'); body.textContent = 'Failed: ' + err.message; body.style.color = '#EF4444'; }
       }
     }
 
@@ -470,6 +479,7 @@
     const quotes = findQuotablePassages(text);
     const container = document.getElementById('quoteSniper');
     const list = document.getElementById('quoteSuggestions');
+    if (!container || !list) return;
     if (quotes.length === 0) { container.style.display = 'none'; return; }
 
     container.style.display = 'block';
@@ -1537,9 +1547,11 @@
         });
         bar.appendChild(clearBtn);
 
-        document.getElementById('transcriptContainer').prepend(bar);
+        const tc = document.getElementById('transcriptContainer');
+        if (tc) tc.prepend(bar);
       }
-      document.getElementById('selectionCount').textContent = selectedSegmentIndices.size + ' selected';
+      const countEl = document.getElementById('selectionCount');
+      if (countEl) countEl.textContent = selectedSegmentIndices.size + ' selected';
       bar.style.display = 'flex';
     } else if (bar) {
       bar.style.display = 'none';
