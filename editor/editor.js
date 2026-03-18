@@ -210,6 +210,9 @@
       content.content?.wordCount ? `${content.content.wordCount} words` : '';
     document.getElementById('contentExcerpt').textContent = content.excerpt || content.description || '';
 
+    // Show quotable passages
+    showQuoteSuggestions();
+
     const fullText = content.content?.text;
     if (fullText && fullText.length > 100) {
       const toggleWrap = document.getElementById('contentFullTextToggle');
@@ -247,6 +250,9 @@
       setTimeout(closeEditor, 300);
     });
     document.getElementById('saveOutput').addEventListener('click', saveOutputToLibrary);
+    document.getElementById('remixOutput').addEventListener('click', () => generateContent(true));
+    document.getElementById('remixBtn').addEventListener('click', () => generateContent(true));
+    document.getElementById('batchBtn').addEventListener('click', batchGenerate);
 
     // Voice selector
     const voiceSelect = document.getElementById('voiceSelect');
@@ -288,26 +294,27 @@
     }
   }
 
-  async function generateContent() {
+  async function generateContent(isRemix) {
     if (!pageContent) { showToast('No content extracted. Capture a page first.'); return; }
     if (currentOutputMode === 'graphic') { generateGraphic(); return; }
 
     const btn = document.getElementById('generateBtn');
     const output = document.getElementById('aiOutput');
     const actions = document.getElementById('outputActions');
+    const batchOutput = document.getElementById('batchOutput');
 
     btn.disabled = true;
     btn.textContent = 'Generating...';
     output.textContent = '';
-
-    // Streaming: show text as it arrives
-    let streamedText = '';
-    const streamContainer = document.createElement('div');
-    streamContainer.className = 'streaming-output';
-    output.appendChild(streamContainer);
+    output.style.display = 'block';
+    batchOutput.style.display = 'none';
 
     try {
-      const customPrompt = document.getElementById('customPrompt').value.trim();
+      let customPrompt = document.getElementById('customPrompt').value.trim();
+      if (isRemix) {
+        customPrompt = (customPrompt ? customPrompt + '. ' : '') +
+          'Give a COMPLETELY DIFFERENT angle, structure, and framing than your previous attempt. Surprise me with a fresh take.';
+      }
       const response = await chrome.runtime.sendMessage({
         action: 'generateContent',
         content: pageContent,
@@ -321,6 +328,7 @@
         lastGeneratedOutput = response.result;
         renderFormattedOutput(output, response.result.formatted);
         actions.style.display = 'flex';
+        document.getElementById('remixBtn').style.display = 'inline-flex';
       }
     } catch (err) {
       setErrorState(output, err.message);
@@ -328,6 +336,164 @@
 
     btn.disabled = false;
     btn.textContent = 'Generate';
+  }
+
+  // --- Batch Generate: tweet + LinkedIn + summary at once ---
+  async function batchGenerate() {
+    if (!pageContent) { showToast('No content extracted. Capture a page first.'); return; }
+
+    const batchModes = [
+      { mode: 'quickquote', label: 'Quick Quote' },
+      { mode: 'linkedin', label: 'LinkedIn Post' },
+      { mode: 'summary', label: 'Summary' }
+    ];
+
+    const output = document.getElementById('aiOutput');
+    const batchOutput = document.getElementById('batchOutput');
+    const actions = document.getElementById('outputActions');
+    const btn = document.getElementById('batchBtn');
+
+    output.style.display = 'none';
+    batchOutput.style.display = 'flex';
+    batchOutput.textContent = '';
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    // Create placeholders
+    for (const { mode, label } of batchModes) {
+      const item = document.createElement('div');
+      item.className = 'batch-item';
+      item.id = 'batch-' + mode;
+      const header = document.createElement('div');
+      header.className = 'batch-item-header';
+      const headerLabel = document.createElement('span');
+      headerLabel.textContent = label;
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'batch-copy-btn';
+      copyBtn.textContent = 'Copy';
+      copyBtn.style.display = 'none';
+      header.appendChild(headerLabel);
+      header.appendChild(copyBtn);
+      const body = document.createElement('div');
+      body.className = 'batch-item-body loading';
+      body.textContent = 'Generating...';
+      item.appendChild(header);
+      item.appendChild(body);
+      batchOutput.appendChild(item);
+    }
+
+    // Generate sequentially (API rate limiting)
+    const batchResults = [];
+    for (const { mode, label } of batchModes) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: 'generateContent',
+          content: pageContent,
+          outputMode: mode,
+          customPrompt: ''
+        });
+        const item = document.getElementById('batch-' + mode);
+        const body = item.querySelector('.batch-item-body');
+        const copyBtn = item.querySelector('.batch-copy-btn');
+        body.classList.remove('loading');
+        if (response.error) {
+          body.textContent = 'Error: ' + response.error;
+          body.style.color = '#EF4444';
+        } else {
+          renderFormattedOutput(body, response.result.formatted);
+          batchResults.push({ mode, label, text: response.result.copyText || response.result.raw });
+          copyBtn.style.display = 'inline-block';
+          copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(response.result.copyText || response.result.raw);
+            showToast(label + ' copied');
+          });
+        }
+      } catch (err) {
+        const item = document.getElementById('batch-' + mode);
+        const body = item.querySelector('.batch-item-body');
+        body.classList.remove('loading');
+        body.textContent = 'Failed: ' + err.message;
+        body.style.color = '#EF4444';
+      }
+    }
+
+    // Set combined output for "Copy All"
+    if (batchResults.length > 0) {
+      lastGeneratedOutput = {
+        mode: 'batch',
+        raw: batchResults.map(r => `--- ${r.label} ---\n${r.text}`).join('\n\n'),
+        formatted: batchResults.map(r => `--- ${r.label} ---\n${r.text}`).join('\n\n'),
+        copyText: batchResults.map(r => `--- ${r.label} ---\n${r.text}`).join('\n\n')
+      };
+      actions.style.display = 'flex';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Batch 3x';
+  }
+
+  // --- Quote Sniper: auto-suggest quotable passages ---
+  function findQuotablePassages(text) {
+    if (!text || text.length < 100) return [];
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+    if (sentences.length === 0) return [];
+
+    // Score sentences by "quotability"
+    const scored = sentences.map(s => {
+      const t = s.trim();
+      let score = 0;
+      // Good length for a quote (40-200 chars)
+      if (t.length >= 40 && t.length <= 200) score += 3;
+      else if (t.length >= 20 && t.length <= 280) score += 1;
+      else return { text: t, score: -1 }; // too short or too long
+      // Contains numbers (specific = good)
+      if (/\d+%|\$[\d,]+|\d+ (million|billion|thousand|percent)/.test(t)) score += 4;
+      if (/\d/.test(t)) score += 1;
+      // Contains quotes (someone said something)
+      if (/"[^"]+"|"[^"]+"|'[^']+'/.test(t)) score += 3;
+      // Strong verbs / claims
+      if (/\b(never|always|every|most|best|worst|first|only|biggest|impossible|breakthrough|discovered)\b/i.test(t)) score += 2;
+      // Not a boring opener
+      if (/^(The |This |It |A |An |In |On |At |For )/i.test(t)) score -= 1;
+      // Starts with something interesting
+      if (/^[""]|^\d|^[A-Z][a-z]+ (said|found|showed|revealed|discovered|argues)/i.test(t)) score += 2;
+      return { text: t, score };
+    }).filter(s => s.score > 0);
+
+    // Sort by score, take top 3
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 3).map(s => s.text);
+  }
+
+  function showQuoteSuggestions() {
+    const text = pageContent?.content?.text || '';
+    const quotes = findQuotablePassages(text);
+    const container = document.getElementById('quoteSniper');
+    const list = document.getElementById('quoteSuggestions');
+    if (quotes.length === 0) { container.style.display = 'none'; return; }
+
+    container.style.display = 'block';
+    list.textContent = '';
+    for (const quote of quotes) {
+      const el = document.createElement('div');
+      el.className = 'quote-suggestion';
+      el.textContent = quote;
+      const useBtn = document.createElement('button');
+      useBtn.className = 'quote-use-btn';
+      useBtn.textContent = 'Use';
+      useBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.getElementById('customPrompt').value = 'Focus on this passage: "' + quote.substring(0, 200) + '"';
+        showToast('Quote loaded — hit Generate');
+      });
+      el.appendChild(useBtn);
+      // Click the quote to copy it
+      el.addEventListener('click', () => {
+        navigator.clipboard.writeText(quote);
+        showToast('Quote copied');
+      });
+      list.appendChild(el);
+    }
   }
 
   // --- Safe DOM rendering helpers ---
@@ -1259,13 +1425,21 @@
     };
   }
 
+  let selectedSegmentIndices = new Set();
+  let lastClickedSegIndex = -1;
+
   function renderTranscript(segments) {
     const list = document.getElementById('transcriptList');
     list.textContent = '';
-    for (const seg of segments) {
+    selectedSegmentIndices.clear();
+    lastClickedSegIndex = -1;
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
       const row = document.createElement('div');
       row.className = 'transcript-segment';
       row.dataset.start = seg.start;
+      row.dataset.index = i;
 
       const ts = document.createElement('span');
       ts.className = 'transcript-ts';
@@ -1278,16 +1452,33 @@
       row.appendChild(ts);
       row.appendChild(text);
 
+      // Click: single select. Shift+click: range select. Ctrl+click: toggle select.
+      row.addEventListener('click', (e) => {
+        const idx = i;
+        if (e.shiftKey && lastClickedSegIndex >= 0) {
+          // Range select
+          const from = Math.min(lastClickedSegIndex, idx);
+          const to = Math.max(lastClickedSegIndex, idx);
+          for (let j = from; j <= to; j++) selectedSegmentIndices.add(j);
+        } else if (e.ctrlKey || e.metaKey) {
+          // Toggle select
+          if (selectedSegmentIndices.has(idx)) selectedSegmentIndices.delete(idx);
+          else selectedSegmentIndices.add(idx);
+        } else {
+          // Single click — copy that segment
+          navigator.clipboard.writeText(seg.text).then(() => showToast('Segment copied'));
+          selectedSegmentIndices.clear();
+          selectedSegmentIndices.add(idx);
+        }
+        lastClickedSegIndex = idx;
+        updateTranscriptSelection();
+      });
+
       // Click timestamp to set clip start
       ts.addEventListener('click', (e) => {
         e.stopPropagation();
         document.getElementById('clipStart').value = seg.timestamp;
         showToast('Clip start: ' + seg.timestamp);
-      });
-
-      // Click text to copy just that segment
-      row.addEventListener('click', () => {
-        navigator.clipboard.writeText(seg.text).then(() => showToast('Segment copied'));
       });
 
       // Double click to set as clip end
@@ -1298,6 +1489,66 @@
 
       list.appendChild(row);
     }
+  }
+
+  function updateTranscriptSelection() {
+    const rows = document.querySelectorAll('.transcript-segment');
+    rows.forEach(r => r.classList.remove('multi-selected'));
+    for (const idx of selectedSegmentIndices) {
+      if (rows[idx]) rows[idx].classList.add('multi-selected');
+    }
+
+    // Show/hide selection action bar
+    let bar = document.getElementById('transcriptSelectionBar');
+    if (selectedSegmentIndices.size > 1) {
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'transcript-selection-bar';
+        bar.id = 'transcriptSelectionBar';
+
+        const count = document.createElement('span');
+        count.id = 'selectionCount';
+        bar.appendChild(count);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => {
+          const text = getSelectedTranscriptText();
+          navigator.clipboard.writeText(text).then(() => showToast('Selection copied'));
+        });
+        bar.appendChild(copyBtn);
+
+        const genBtn = document.createElement('button');
+        genBtn.textContent = 'Generate Post';
+        genBtn.addEventListener('click', () => {
+          const text = getSelectedTranscriptText();
+          pageContent = buildVideoContent(text);
+          populateContentPanel(pageContent);
+          switchPanel('content');
+          showToast('Selection loaded — pick a mode and generate');
+        });
+        bar.appendChild(genBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = 'Clear';
+        clearBtn.addEventListener('click', () => {
+          selectedSegmentIndices.clear();
+          updateTranscriptSelection();
+        });
+        bar.appendChild(clearBtn);
+
+        document.getElementById('transcriptContainer').prepend(bar);
+      }
+      document.getElementById('selectionCount').textContent = selectedSegmentIndices.size + ' selected';
+      bar.style.display = 'flex';
+    } else if (bar) {
+      bar.style.display = 'none';
+    }
+  }
+
+  function getSelectedTranscriptText() {
+    const indices = [...selectedSegmentIndices].sort((a, b) => a - b);
+    return indices.map(i => transcriptSegments[i]?.text || '').join(' ');
   }
 
   function filterTranscript(query) {

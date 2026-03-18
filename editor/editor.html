@@ -200,7 +200,17 @@
           </div>
 
           <!-- Generate button -->
-          <button class="generate-btn" id="generateBtn">Generate</button>
+          <div class="generate-row">
+            <button class="generate-btn" id="generateBtn">Generate</button>
+            <button class="generate-btn secondary remix-btn" id="remixBtn" style="display:none" title="Generate a fresh take">Remix</button>
+            <button class="generate-btn secondary batch-btn" id="batchBtn" title="Generate tweet + LinkedIn + summary at once">Batch 3x</button>
+          </div>
+
+          <!-- Quote Sniper: auto-suggested quotable passages -->
+          <div class="quote-sniper" id="quoteSniper" style="display:none">
+            <div class="section-header">Quotable Passages</div>
+            <div class="quote-suggestions" id="quoteSuggestions"></div>
+          </div>
 
           <!-- AI Output Display -->
           <div class="ai-output" id="aiOutput">
@@ -209,10 +219,14 @@
             </div>
           </div>
 
+          <!-- Batch Output Display -->
+          <div class="batch-output" id="batchOutput" style="display:none"></div>
+
           <!-- Output actions -->
           <div class="output-actions" id="outputActions" style="display:none">
             <button class="output-action-btn copy-main" id="copyOutput">Copy</button>
             <button class="output-action-btn" id="copyCloseOutput">Copy & Close</button>
+            <button class="output-action-btn" id="remixOutput">Remix</button>
             <button class="output-action-btn" id="saveOutput">Save to Library</button>
           </div>
 

@@ -438,6 +438,64 @@ html, body {
 }
 .video-action-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Generate row */
+.generate-row { display: flex; gap: 6px; }
+.generate-row .generate-btn { flex: 1; }
+.generate-btn.secondary { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); }
+.generate-btn.secondary:hover { border-color: var(--accent); color: var(--accent); }
+.remix-btn { flex: 0 0 auto !important; padding: 8px 16px; }
+.batch-btn { flex: 0 0 auto !important; padding: 8px 16px; font-size: 11px; }
+
+/* Quote Sniper */
+.quote-sniper { margin: 8px 0; }
+.quote-suggestions { display: flex; flex-direction: column; gap: 4px; }
+.quote-suggestion {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--input-bg); cursor: pointer; transition: all 0.12s;
+  font-size: 12px; line-height: 1.4; color: var(--text-secondary);
+  position: relative;
+}
+.quote-suggestion:hover { border-color: var(--accent); background: var(--btn-hover); }
+.quote-suggestion .quote-use-btn {
+  position: absolute; top: 4px; right: 4px;
+  padding: 2px 8px; border: 1px solid var(--accent); border-radius: 12px;
+  background: var(--accent-solid); color: white; font-size: 9px; font-weight: 600;
+  cursor: pointer; opacity: 0; transition: opacity 0.12s;
+}
+.quote-suggestion:hover .quote-use-btn { opacity: 1; }
+
+/* Batch Output */
+.batch-output { display: flex; flex-direction: column; gap: 10px; }
+.batch-item {
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.batch-item-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;
+}
+.batch-item-header .batch-copy-btn {
+  padding: 2px 10px; border: 1px solid var(--border); border-radius: 12px;
+  background: transparent; color: var(--text-secondary); font-size: 10px;
+  cursor: pointer; transition: all 0.1s;
+}
+.batch-item-header .batch-copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+.batch-item-body { padding: 10px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.batch-item-body.loading { color: var(--text-muted); font-style: italic; }
+
+/* Transcript segment selection for multi-select */
+.transcript-segment.multi-selected { background: rgba(79,70,229,0.2); border-left: 3px solid var(--accent-solid); }
+.transcript-selection-bar {
+  display: flex; gap: 6px; padding: 8px; background: var(--accent-solid); border-radius: 6px;
+  align-items: center; color: white; font-size: 11px; font-weight: 600;
+}
+.transcript-selection-bar button {
+  padding: 3px 10px; border: 1px solid rgba(255,255,255,0.3); border-radius: 12px;
+  background: rgba(255,255,255,0.15); color: white; font-size: 10px; font-weight: 600;
+  cursor: pointer; transition: background 0.1s;
+}
+.transcript-selection-bar button:hover { background: rgba(255,255,255,0.3); }
+
 /* Crop overlay */
 .crop-overlay {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
