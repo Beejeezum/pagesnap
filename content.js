@@ -241,8 +241,9 @@
     _loadImage(dataUrl) {
       return new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to load capture image'));
+        const timeout = setTimeout(() => reject(new Error('Image load timed out')), 10000);
+        img.onload = () => { clearTimeout(timeout); resolve(img); };
+        img.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load capture image')); };
         img.src = dataUrl;
       });
     }
@@ -291,13 +292,13 @@
             // Capture the first viewport with everything visible
             const result = await this._captureViewport();
             if (result.error) throw new Error(result.error);
-            captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, pageHeight - window.scrollY), viewportHeight: vpH });
+            captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.max(0, Math.min(vpH, pageHeight - window.scrollY)), viewportHeight: vpH });
             // Now hide fixed elements for all remaining captures
             fixedStyles = this._hideFixedElements(fixedEls);
           } else {
             const result = await this._captureViewport();
             if (result.error) throw new Error(result.error);
-            captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.min(vpH, pageHeight - window.scrollY), viewportHeight: vpH });
+            captures.push({ dataUrl: result.dataUrl, y: window.scrollY, height: Math.max(0, Math.min(vpH, pageHeight - window.scrollY)), viewportHeight: vpH });
           }
 
           curY += vpH;
@@ -547,7 +548,7 @@
       const w = Math.abs(e.clientX - startX);
       const h = Math.abs(e.clientY - startY);
       cleanup();
-      if (w < 10 || h < 10) { showNotification('Selection too small.', 'warning'); return; }
+      if (w < 20 || h < 20) { showNotification('Selection too small. Drag a larger area.', 'warning'); return; }
       isCapturing = true;
       showIndicator('Capturing area...');
       try {
@@ -747,17 +748,25 @@
     if (screenshotDataUrl) {
       const img = new Image();
       img.onload = () => {
-        const c = document.createElement('canvas');
-        const tw = 200;
-        const th = Math.round(img.height * (tw / img.width));
-        c.width = tw; c.height = th;
-        c.getContext('2d').drawImage(img, 0, 0, tw, th);
-        thumbnail = c.toDataURL('image/jpeg', 0.5);
-
-        chrome.runtime.sendMessage({
-          action: 'swipefileSave',
-          item: { ...extractedContent, thumbnail, screenshot: thumbnail }
-        });
+        try {
+          const c = document.createElement('canvas');
+          const tw = 200;
+          const th = Math.round(img.height * (tw / img.width));
+          c.width = tw; c.height = th;
+          c.getContext('2d').drawImage(img, 0, 0, tw, th);
+          thumbnail = c.toDataURL('image/jpeg', 0.5);
+          chrome.runtime.sendMessage({
+            action: 'swipefileSave',
+            item: { ...extractedContent, thumbnail, screenshot: thumbnail }
+          });
+        } catch (e) {
+          // Thumbnail failed, save without it
+          chrome.runtime.sendMessage({ action: 'swipefileSave', item: { ...extractedContent } });
+        }
+      };
+      img.onerror = () => {
+        // Image failed to load, save without thumbnail
+        chrome.runtime.sendMessage({ action: 'swipefileSave', item: { ...extractedContent } });
       };
       img.src = screenshotDataUrl;
     } else {

@@ -98,10 +98,19 @@ async function loadLibrary(filter) {
   const list = document.getElementById('libraryList');
   let response;
 
-  if (filter === 'favorites') {
-    response = await chrome.runtime.sendMessage({ action: 'swipefileGetFavorites' });
-  } else {
-    response = await chrome.runtime.sendMessage({ action: 'swipefileGetAll' });
+  try {
+    if (filter === 'favorites') {
+      response = await chrome.runtime.sendMessage({ action: 'swipefileGetFavorites' });
+    } else {
+      response = await chrome.runtime.sendMessage({ action: 'swipefileGetAll' });
+    }
+  } catch (e) {
+    list.textContent = '';
+    const err = document.createElement('div');
+    err.className = 'empty-state';
+    err.textContent = 'Failed to load library.';
+    list.appendChild(err);
+    return;
   }
 
   const items = response?.items || [];
@@ -122,6 +131,13 @@ async function loadLibrary(filter) {
   }
 
   list.textContent = '';
+  if (items.length > 30) {
+    const note = document.createElement('div');
+    note.className = 'library-item-domain';
+    note.style.cssText = 'padding:4px 8px;font-size:11px;';
+    note.textContent = `Showing 30 of ${items.length} items`;
+    list.appendChild(note);
+  }
   items.slice(0, 30).forEach(item => {
     const el = document.createElement('div');
     el.className = 'library-item';

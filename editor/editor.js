@@ -24,6 +24,7 @@
   let currentVoice = 'straight-shooter';
   let lastGeneratedOutput = null;
   let hasScreenshot = false;
+  let isBatchGenerating = false;
 
   // YouTube state
   let youtubeData = null;
@@ -42,9 +43,13 @@
   function init() {
     imageCanvas = document.getElementById('imageCanvas');
     annotCanvas = document.getElementById('annotationCanvas');
+    container = document.getElementById('canvasContainer');
+    if (!imageCanvas || !annotCanvas || !container) {
+      console.error('PageSnap: Required editor elements missing');
+      return;
+    }
     imageCtx = imageCanvas.getContext('2d');
     annotCtx = annotCanvas.getContext('2d');
-    container = document.getElementById('canvasContainer');
     annotationState = PageSnapAnnotations.createState();
 
     setupToolbar();
@@ -350,6 +355,7 @@
   // --- Batch Generate: tweet + LinkedIn + summary at once ---
   async function batchGenerate() {
     if (!pageContent) { showToast('No content extracted. Capture a page first.'); return; }
+    if (isBatchGenerating) return;
 
     const batchModes = [
       { mode: 'quickquote', label: 'Quick Quote' },
@@ -362,6 +368,7 @@
     const actions = document.getElementById('outputActions');
     const btn = document.getElementById('batchBtn');
 
+    isBatchGenerating = true;
     output.style.display = 'none';
     batchOutput.style.display = 'flex';
     batchOutput.textContent = '';
@@ -414,8 +421,10 @@
           if (copyBtn) {
             copyBtn.style.display = 'inline-block';
             copyBtn.addEventListener('click', () => {
-              navigator.clipboard.writeText(response.result.copyText || response.result.raw);
-              showToast(label + ' copied');
+              navigator.clipboard.writeText(response.result.copyText || response.result.raw).then(
+                () => showToast(label + ' copied'),
+                () => showToast('Copy failed')
+              );
             });
           }
         }
@@ -439,6 +448,7 @@
 
     btn.disabled = false;
     btn.textContent = 'Batch 3x';
+    isBatchGenerating = false;
   }
 
   // --- Quote Sniper: auto-suggest quotable passages ---
@@ -499,8 +509,10 @@
       el.appendChild(useBtn);
       // Click the quote to copy it
       el.addEventListener('click', () => {
-        navigator.clipboard.writeText(quote);
-        showToast('Quote copied');
+        navigator.clipboard.writeText(quote).then(
+          () => showToast('Quote copied'),
+          () => showToast('Copy failed')
+        );
       });
       list.appendChild(el);
     }
@@ -738,25 +750,25 @@
       document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
     });
     document.getElementById('lineWidth').addEventListener('input', (e) => {
-      currentLineWidth = parseInt(e.target.value);
+      currentLineWidth = parseInt(e.target.value, 10) || 2;
       document.getElementById('lineWidthValue').textContent = currentLineWidth;
     });
     document.getElementById('fontSize').addEventListener('input', (e) => {
-      currentFontSize = parseInt(e.target.value);
+      currentFontSize = parseInt(e.target.value, 10) || 16;
       document.getElementById('fontSizeValue').textContent = currentFontSize;
     });
     // Opacity slider
     const opSlider = document.getElementById('opacitySlider');
     if (opSlider) {
       opSlider.addEventListener('input', (e) => {
-        currentOpacity = parseInt(e.target.value) / 100;
+        currentOpacity = (parseInt(e.target.value, 10) || 100) / 100;
         document.getElementById('opacityValue').textContent = e.target.value + '%';
       });
     }
     // Line width presets
     document.querySelectorAll('.width-preset').forEach(btn => {
       btn.addEventListener('click', () => {
-        currentLineWidth = parseInt(btn.dataset.width);
+        currentLineWidth = parseInt(btn.dataset.width, 10) || 2;
         document.getElementById('lineWidth').value = currentLineWidth;
         document.getElementById('lineWidthValue').textContent = currentLineWidth;
         document.querySelectorAll('.width-preset').forEach(b => b.classList.remove('active'));
@@ -1020,7 +1032,8 @@
 
   function applyCrop() {
     if (!originalImage) return;
-    const dw = parseFloat(annotCanvas.style.width), dh = parseFloat(annotCanvas.style.height);
+    const canvasRect = annotCanvas.getBoundingClientRect();
+    const dw = canvasRect.width, dh = canvasRect.height;
     const cr = annotCanvas.getBoundingClientRect(), or = document.getElementById('cropOverlay').getBoundingClientRect();
     const offX = cr.left - or.left, offY = cr.top - or.top;
     const sx = Math.max(0, Math.round((cropRect.x - offX) * originalImage.width / dw));
@@ -1163,7 +1176,7 @@
       if (e.key === ' ') { spacePressed = true; e.preventDefault(); return; }
 
       const ti = document.getElementById('textInput');
-      if (ti.style.display !== 'none') return;
+      if (ti && ti.style.display !== 'none') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 
       const ctrl = e.ctrlKey || e.metaKey;
@@ -1202,18 +1215,18 @@
     document.getElementById('copyTranscript')?.addEventListener('click', () => {
       if (!transcriptSegments.length) return;
       const text = transcriptSegments.map(s => s.text).join(' ');
-      navigator.clipboard.writeText(text).then(() => showToast('Transcript copied'));
+      navigator.clipboard.writeText(text).then(() => showToast('Transcript copied'), () => showToast('Copy failed'));
     });
     document.getElementById('copyTimestamped')?.addEventListener('click', () => {
       if (!transcriptSegments.length) return;
       const text = transcriptSegments.map(s => `[${s.timestamp}] ${s.text}`).join('\n');
-      navigator.clipboard.writeText(text).then(() => showToast('Timestamped transcript copied'));
+      navigator.clipboard.writeText(text).then(() => showToast('Timestamped transcript copied'), () => showToast('Copy failed'));
     });
 
     // Clip range
     document.getElementById('clipExtract')?.addEventListener('click', extractClip);
     document.getElementById('clipCopy')?.addEventListener('click', () => {
-      if (clipContent) navigator.clipboard.writeText(clipContent).then(() => showToast('Clip copied'));
+      if (clipContent) navigator.clipboard.writeText(clipContent).then(() => showToast('Clip copied'), () => showToast('Copy failed'));
     });
     document.getElementById('clipToAI')?.addEventListener('click', () => {
       if (!clipContent) return;
@@ -1568,7 +1581,8 @@
     if (!query) { rows.forEach(r => { r.style.display = 'flex'; r.classList.remove('highlight'); }); return; }
     const q = query.toLowerCase();
     rows.forEach(row => {
-      const text = row.querySelector('.transcript-text').textContent.toLowerCase();
+      const textEl = row.querySelector('.transcript-text');
+      const text = textEl ? textEl.textContent.toLowerCase() : '';
       if (text.includes(q)) {
         row.style.display = 'flex';
         row.classList.add('highlight');
@@ -1587,6 +1601,7 @@
 
     const startSec = PageSnapYouTube.parseTimestamp(startStr);
     const endSec = PageSnapYouTube.parseTimestamp(endStr);
+    if (isNaN(startSec) || isNaN(endSec)) { showToast('Invalid time format (use m:ss)'); return; }
     if (endSec <= startSec) { showToast('End must be after start'); return; }
 
     const clipped = transcriptSegments

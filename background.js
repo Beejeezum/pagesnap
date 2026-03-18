@@ -88,19 +88,22 @@ function getDevApiKey() {
 
 // Initialize on install
 chrome.runtime.onInstalled.addListener(async () => {
-  const existing = await chrome.storage.local.get('settings');
-  if (!existing.settings) {
-    const defaults = { ...DEFAULT_SETTINGS };
-    const devKey = getDevApiKey();
-    if (devKey) defaults.apiKey = devKey;
-    await chrome.storage.local.set({ settings: defaults });
-  } else if (!existing.settings.apiKey) {
-    // Existing settings but no key - fill in dev key if available
-    const devKey = getDevApiKey();
-    if (devKey) {
-      existing.settings.apiKey = devKey;
-      await chrome.storage.local.set({ settings: existing.settings });
+  try {
+    const existing = await chrome.storage.local.get('settings');
+    if (!existing.settings) {
+      const defaults = { ...DEFAULT_SETTINGS };
+      const devKey = getDevApiKey();
+      if (devKey) defaults.apiKey = devKey;
+      await chrome.storage.local.set({ settings: defaults });
+    } else if (!existing.settings.apiKey) {
+      const devKey = getDevApiKey();
+      if (devKey) {
+        existing.settings.apiKey = devKey;
+        await chrome.storage.local.set({ settings: existing.settings });
+      }
     }
+  } catch (e) {
+    console.error('PageSnap: Failed to initialize settings:', e);
   }
 });
 
@@ -304,7 +307,7 @@ async function generateContent(content, outputMode, customPrompt) {
 // --- YouTube Transcript ---
 
 async function fetchYouTubeTranscript(videoId) {
-  if (!videoId || typeof videoId !== 'string' || videoId.length > 20) {
+  if (!videoId || typeof videoId !== 'string' || !/^[a-zA-Z0-9_-]{6,15}$/.test(videoId)) {
     return { error: 'Invalid video ID' };
   }
   try {
@@ -414,8 +417,14 @@ async function getSettings(sender) {
 }
 
 async function updateSettings(newSettings) {
+  // Only allow known setting keys
+  const allowedKeys = new Set(Object.keys(DEFAULT_SETTINGS));
+  const filtered = {};
+  for (const [k, v] of Object.entries(newSettings || {})) {
+    if (allowedKeys.has(k)) filtered[k] = v;
+  }
   const { settings } = await chrome.storage.local.get('settings');
-  const merged = { ...(settings || DEFAULT_SETTINGS), ...newSettings };
+  const merged = { ...(settings || DEFAULT_SETTINGS), ...filtered };
   await chrome.storage.local.set({ settings: merged });
   // Return masked key in response
   const response = { ...merged };
