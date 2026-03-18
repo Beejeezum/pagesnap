@@ -25,6 +25,7 @@
   let lastGeneratedOutput = null;
   let hasScreenshot = false;
   let isBatchGenerating = false;
+  let outputHistory = []; // { mode, text, copyText, formatted, timestamp }
 
   // YouTube state
   let youtubeData = null;
@@ -72,9 +73,7 @@
           loadImage(e.data.screenshot);
         } else {
           hasScreenshot = false;
-          document.getElementById('noScreenshot').style.display = 'block';
-          document.getElementById('annotationTools').style.visibility = 'hidden';
-          switchPanel('content');
+          enterContentOnlyMode();
         }
         if (e.data.content) {
           pageContent = e.data.content;
@@ -100,6 +99,18 @@
         pageTitle = e.data.pageTitle || '';
       }
     });
+  }
+
+  // --- Content-Only Mode ---
+  function enterContentOnlyMode() {
+    const app = document.getElementById('editor-app');
+    app.classList.add('content-only');
+    document.getElementById('screenshotPanel').style.display = 'none';
+    document.getElementById('annotationTools').style.visibility = 'hidden';
+    document.getElementById('toolOptions').style.display = 'none';
+    const exportBar = document.querySelector('.export-bar');
+    if (exportBar) exportBar.style.display = 'none';
+    switchPanel('content');
   }
 
   // --- Image Loading ---
@@ -343,6 +354,8 @@
         renderFormattedOutput(output, response.result.formatted);
         actions.style.display = 'flex';
         document.getElementById('remixBtn').style.display = 'inline-flex';
+        updateCharCount(response.result.copyText || response.result.raw);
+        addToHistory(currentOutputMode, response.result);
       }
     } catch (err) {
       setErrorState(output, err.message);
@@ -567,6 +580,82 @@
       hint.textContent = 'Your key is stored locally and never sent anywhere except the Claude API.';
       container.appendChild(hint);
     }
+  }
+
+  // --- Character count + platform fit ---
+  const PLATFORM_LIMITS = {
+    'X/Twitter': 280,
+    'LinkedIn': 3000,
+    'Instagram': 2200,
+    'Threads': 500,
+  };
+
+  function updateCharCount(text) {
+    const countEl = document.getElementById('charCount');
+    const numEl = document.getElementById('charCountNum');
+    const fitsEl = document.getElementById('platformFits');
+    if (!countEl || !text) { if (countEl) countEl.style.display = 'none'; return; }
+
+    const len = text.length;
+    numEl.textContent = len + ' chars';
+    countEl.style.display = 'flex';
+
+    fitsEl.textContent = '';
+    for (const [platform, limit] of Object.entries(PLATFORM_LIMITS)) {
+      const tag = document.createElement('span');
+      tag.className = 'platform-fit';
+      if (len <= limit) {
+        tag.classList.add('good');
+        tag.textContent = platform + ' \u2713';
+      } else if (len <= limit * 1.1) {
+        tag.classList.add('tight');
+        tag.textContent = platform + ' ~';
+      } else {
+        tag.classList.add('over');
+        tag.textContent = platform + ' \u2717';
+      }
+      fitsEl.appendChild(tag);
+    }
+  }
+
+  // --- Output history ---
+  function addToHistory(mode, result) {
+    outputHistory.push({
+      mode,
+      text: result.raw || result.copyText || '',
+      copyText: result.copyText || result.raw || '',
+      formatted: result.formatted || '',
+      timestamp: Date.now()
+    });
+    if (outputHistory.length > 10) outputHistory.shift();
+    renderOutputHistory();
+  }
+
+  function renderOutputHistory() {
+    const histEl = document.getElementById('outputHistory');
+    if (!histEl || outputHistory.length < 2) { if (histEl) histEl.style.display = 'none'; return; }
+
+    histEl.style.display = 'flex';
+    histEl.textContent = '';
+    outputHistory.forEach((item, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'output-history-btn' + (idx === outputHistory.length - 1 ? ' active' : '');
+      btn.textContent = (idx + 1) + '. ' + item.mode;
+      btn.title = item.text.substring(0, 100);
+      btn.addEventListener('click', () => {
+        const output = document.getElementById('aiOutput');
+        renderFormattedOutput(output, item.formatted);
+        output.style.display = 'block';
+        document.getElementById('batchOutput').style.display = 'none';
+        lastGeneratedOutput = item;
+        document.getElementById('outputActions').style.display = 'flex';
+        updateCharCount(item.copyText || item.text);
+        // Update active state
+        histEl.querySelectorAll('.output-history-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+      histEl.appendChild(btn);
+    });
   }
 
   function renderFormattedOutput(container, text) {

@@ -649,13 +649,23 @@
     // The editor iframe reads this from location.hash and validates it on every message
     const nonce = crypto.randomUUID();
 
+    const isContentOnly = !screenshotDataUrl;
     const container = document.createElement('div');
     container.id = 'pagesnap-editor-container';
-    container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;';
+    if (isContentOnly) {
+      // Compact sidebar mode: right-aligned panel, page stays visible
+      container.style.cssText = 'position:fixed;top:0;right:0;width:460px;height:100vh;z-index:2147483647;box-shadow:-4px 0 24px rgba(0,0,0,0.25);';
+    } else {
+      container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;';
+    }
 
     const iframe = document.createElement('iframe');
     iframe.src = chrome.runtime.getURL('editor/editor.html') + '#' + nonce;
-    iframe.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;';
+    if (isContentOnly) {
+      iframe.style.cssText = 'width:100%;height:100%;border:none;';
+    } else {
+      iframe.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;';
+    }
 
     iframe.onload = () => {
       // Detect YouTube and extract video data

@@ -178,20 +178,29 @@
             </select>
           </div>
 
-          <!-- AI Output Mode Selector -->
-          <div class="output-modes" id="outputModes">
-            <button class="output-mode-btn active" data-mode="quickquote">Quick Quote</button>
-            <button class="output-mode-btn" data-mode="hottake">Hot Take</button>
-            <button class="output-mode-btn" data-mode="linkedin">LinkedIn</button>
-            <button class="output-mode-btn" data-mode="thread">Thread</button>
-            <button class="output-mode-btn" data-mode="summary">Summary</button>
-            <button class="output-mode-btn" data-mode="tldr">TL;DR</button>
-            <button class="output-mode-btn" data-mode="bulletbrief">Bullets</button>
-            <button class="output-mode-btn" data-mode="newsletter">Newsletter</button>
-            <button class="output-mode-btn" data-mode="blogseed">Blog Seed</button>
-            <button class="output-mode-btn" data-mode="rewrite">Rewrite</button>
-            <button class="output-mode-btn" data-mode="llmextract">LLM Extract</button>
-            <button class="output-mode-btn" data-mode="graphic">Graphic</button>
+          <!-- AI Output Mode Selector (grouped) -->
+          <div class="output-mode-group" id="outputModes">
+            <div class="output-mode-group-label">Social</div>
+            <div class="output-mode-row">
+              <button class="output-mode-btn active" data-mode="quickquote">Quick Quote</button>
+              <button class="output-mode-btn" data-mode="hottake">Hot Take</button>
+              <button class="output-mode-btn" data-mode="linkedin">LinkedIn</button>
+              <button class="output-mode-btn" data-mode="thread">Thread</button>
+            </div>
+            <div class="output-mode-group-label">Distill</div>
+            <div class="output-mode-row">
+              <button class="output-mode-btn" data-mode="summary">Summary</button>
+              <button class="output-mode-btn" data-mode="tldr">TL;DR</button>
+              <button class="output-mode-btn" data-mode="bulletbrief">Bullets</button>
+            </div>
+            <div class="output-mode-group-label">Create</div>
+            <div class="output-mode-row">
+              <button class="output-mode-btn" data-mode="newsletter">Newsletter</button>
+              <button class="output-mode-btn" data-mode="blogseed">Blog Seed</button>
+              <button class="output-mode-btn" data-mode="rewrite">Rewrite</button>
+              <button class="output-mode-btn" data-mode="llmextract">LLM Extract</button>
+              <button class="output-mode-btn" data-mode="graphic">Graphic</button>
+            </div>
           </div>
 
           <!-- Custom prompt -->
@@ -221,6 +230,15 @@
 
           <!-- Batch Output Display -->
           <div class="batch-output" id="batchOutput" style="display:none"></div>
+
+          <!-- Character count + platform fit -->
+          <div class="char-count" id="charCount" style="display:none">
+            <span class="count" id="charCountNum">0 chars</span>
+            <span id="platformFits"></span>
+          </div>
+
+          <!-- Output history (previous generations) -->
+          <div class="output-history" id="outputHistory" style="display:none"></div>
 
           <!-- Output actions -->
           <div class="output-actions" id="outputActions" style="display:none">
