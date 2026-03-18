@@ -91,6 +91,9 @@
         if (e.data.initialOutputMode) {
           setOutputMode(e.data.initialOutputMode);
           if (pageContent) setTimeout(() => generateContent(), 300);
+        } else if (pageContent && !e.data.youtube) {
+          // Auto-generate a Quick Quote on load — zero-click value
+          setTimeout(() => generateContent(), 400);
         }
       }
       if (e.data?.type === 'pagesnap-load-image') {
@@ -224,7 +227,14 @@
     document.getElementById('contentDomain').textContent = content.domain || '';
     document.getElementById('contentWordCount').textContent =
       content.content?.wordCount ? `${content.content.wordCount} words` : '';
-    document.getElementById('contentExcerpt').textContent = content.excerpt || content.description || '';
+
+    // Show source content section
+    const excerpt = content.excerpt || content.description || '';
+    const sourceSection = document.getElementById('sourceContent');
+    if (excerpt || content.content?.text) {
+      document.getElementById('contentExcerpt').textContent = excerpt;
+      if (sourceSection) sourceSection.style.display = 'block';
+    }
 
     // Show quotable passages
     showQuoteSuggestions();
@@ -264,11 +274,60 @@
   }
 
   // --- Output Modes ---
+  const MODE_LABELS = {
+    quickquote: 'Quick Quote', hottake: 'Hot Take', linkedin: 'LinkedIn',
+    thread: 'Thread', summary: 'Summary', tldr: 'TL;DR', bulletbrief: 'Bullets',
+    newsletter: 'Newsletter', blogseed: 'Blog Seed', rewrite: 'Rewrite',
+    llmextract: 'LLM Extract', graphic: 'Graphic'
+  };
+
   function setupOutputModes() {
-    document.querySelectorAll('.output-mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => setOutputMode(btn.dataset.mode));
+    // Quick action buttons: click = set mode + generate immediately
+    document.querySelectorAll('.quick-action-btn:not(.more-btn)').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        setOutputMode(mode);
+        if (pageContent) generateContent();
+      });
     });
-    document.getElementById('generateBtn').addEventListener('click', generateContent);
+
+    // More modes toggle
+    const moreBtn = document.getElementById('moreModesBtn');
+    const moreModes = document.getElementById('moreModes');
+    if (moreBtn && moreModes) {
+      moreBtn.addEventListener('click', () => {
+        const visible = moreModes.style.display !== 'none';
+        moreModes.style.display = visible ? 'none' : 'block';
+        moreBtn.classList.toggle('expanded', !visible);
+        moreBtn.textContent = visible ? 'More' : 'Less';
+      });
+    }
+
+    // More modes buttons: click = set mode + generate + collapse
+    document.querySelectorAll('#moreModes .output-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        setOutputMode(mode);
+        if (mode !== 'graphic' && pageContent) generateContent();
+        if (moreModes) moreModes.style.display = 'none';
+        if (moreBtn) { moreBtn.classList.remove('expanded'); moreBtn.textContent = 'More'; }
+      });
+    });
+
+    // Voice chips: click = switch voice + regenerate
+    document.querySelectorAll('.voice-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const voice = chip.dataset.voice;
+        currentVoice = voice;
+        document.querySelectorAll('.voice-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        chrome.runtime.sendMessage({ action: 'updateSettings', settings: { voice: currentVoice } });
+        // If we already have output, regenerate in new voice
+        if (lastGeneratedOutput && pageContent) generateContent();
+      });
+    });
+
+    document.getElementById('generateBtn').addEventListener('click', () => generateContent());
     document.getElementById('copyOutput').addEventListener('click', copyOutputToClipboard);
     document.getElementById('copyCloseOutput').addEventListener('click', async () => {
       await copyOutputToClipboard();
@@ -278,15 +337,6 @@
     document.getElementById('remixOutput').addEventListener('click', () => generateContent(true));
     document.getElementById('remixBtn').addEventListener('click', () => generateContent(true));
     document.getElementById('batchBtn').addEventListener('click', batchGenerate);
-
-    // Voice selector
-    const voiceSelect = document.getElementById('voiceSelect');
-    if (voiceSelect) {
-      voiceSelect.addEventListener('change', (e) => {
-        currentVoice = e.target.value;
-        chrome.runtime.sendMessage({ action: 'updateSettings', settings: { voice: currentVoice } });
-      });
-    }
   }
 
   async function loadVoiceSetting() {
@@ -294,28 +344,33 @@
       const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
       if (response?.settings?.voice) {
         currentVoice = response.settings.voice;
-        const voiceSelect = document.getElementById('voiceSelect');
-        if (voiceSelect) voiceSelect.value = currentVoice;
+        document.querySelectorAll('.voice-chip').forEach(c => {
+          c.classList.toggle('active', c.dataset.voice === currentVoice);
+        });
       }
     } catch (e) { /* use default */ }
   }
 
   function setOutputMode(mode) {
     currentOutputMode = mode;
+    // Update quick action buttons
+    document.querySelectorAll('.quick-action-btn:not(.more-btn)').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.quick-action-btn[data-mode="${mode}"]`)?.classList.add('active');
+    // Update more modes buttons
     document.querySelectorAll('.output-mode-btn').forEach(b => b.classList.remove('active'));
     document.querySelector(`.output-mode-btn[data-mode="${mode}"]`)?.classList.add('active');
 
     const graphicPreview = document.getElementById('graphicPreview');
-    const aiOutput = document.getElementById('aiOutput');
+    const outputCard = document.getElementById('outputCard');
     if (mode === 'graphic') {
       graphicPreview.style.display = 'flex';
-      aiOutput.style.display = 'none';
+      if (outputCard) outputCard.style.display = 'none';
       if (pageContent && !document.getElementById('graphicQuote').value) {
         document.getElementById('graphicQuote').value = pageContent.excerpt || pageContent.title || '';
       }
     } else {
       graphicPreview.style.display = 'none';
-      aiOutput.style.display = 'block';
+      if (outputCard) outputCard.style.display = 'block';
     }
   }
 
@@ -327,12 +382,30 @@
     const output = document.getElementById('aiOutput');
     const actions = document.getElementById('outputActions');
     const batchOutput = document.getElementById('batchOutput');
+    const outputCard = document.getElementById('outputCard');
+    const cardHeader = document.getElementById('outputCardHeader');
 
     btn.disabled = true;
     btn.textContent = 'Generating...';
-    output.textContent = '';
-    output.style.display = 'block';
     batchOutput.style.display = 'none';
+    if (outputCard) { outputCard.style.display = 'block'; outputCard.classList.remove('has-output'); }
+
+    // Show shimmer loading
+    output.innerHTML = '';
+    const shimmer = document.createElement('div');
+    shimmer.className = 'shimmer';
+    for (let i = 0; i < 3; i++) { const line = document.createElement('div'); line.className = 'shimmer-line'; shimmer.appendChild(line); }
+    output.appendChild(shimmer);
+
+    // Show mode badge in header
+    if (cardHeader) {
+      cardHeader.style.display = 'flex';
+      document.getElementById('outputModeBadge').textContent = MODE_LABELS[currentOutputMode] || currentOutputMode;
+    }
+
+    // Pulse the active quick action button
+    const activeQA = document.querySelector('.quick-action-btn.active');
+    if (activeQA) activeQA.classList.add('generating');
 
     try {
       let customPrompt = document.getElementById('customPrompt').value.trim();
@@ -351,7 +424,13 @@
         setErrorState(output, response.error);
       } else {
         lastGeneratedOutput = response.result;
-        renderFormattedOutput(output, response.result.formatted);
+        // Wrap output in animated container
+        output.innerHTML = '';
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'output-content';
+        output.appendChild(contentDiv);
+        renderFormattedOutput(contentDiv, response.result.formatted);
+        if (outputCard) outputCard.classList.add('has-output');
         actions.style.display = 'flex';
         document.getElementById('remixBtn').style.display = 'inline-flex';
         updateCharCount(response.result.copyText || response.result.raw);
@@ -361,6 +440,7 @@
       setErrorState(output, err.message);
     }
 
+    if (activeQA) activeQA.classList.remove('generating');
     btn.disabled = false;
     btn.textContent = 'Generate';
   }
@@ -640,17 +720,23 @@
     outputHistory.forEach((item, idx) => {
       const btn = document.createElement('button');
       btn.className = 'output-history-btn' + (idx === outputHistory.length - 1 ? ' active' : '');
-      btn.textContent = (idx + 1) + '. ' + item.mode;
+      btn.textContent = MODE_LABELS[item.mode] || item.mode;
       btn.title = item.text.substring(0, 100);
       btn.addEventListener('click', () => {
         const output = document.getElementById('aiOutput');
-        renderFormattedOutput(output, item.formatted);
-        output.style.display = 'block';
+        const outputCard = document.getElementById('outputCard');
+        const cardHeader = document.getElementById('outputCardHeader');
+        output.innerHTML = '';
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'output-content';
+        output.appendChild(contentDiv);
+        renderFormattedOutput(contentDiv, item.formatted);
+        if (outputCard) { outputCard.style.display = 'block'; outputCard.classList.add('has-output'); }
+        if (cardHeader) { cardHeader.style.display = 'flex'; document.getElementById('outputModeBadge').textContent = MODE_LABELS[item.mode] || item.mode; }
         document.getElementById('batchOutput').style.display = 'none';
         lastGeneratedOutput = item;
         document.getElementById('outputActions').style.display = 'flex';
         updateCharCount(item.copyText || item.text);
-        // Update active state
         histEl.querySelectorAll('.output-history-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
       });
@@ -1264,11 +1350,26 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === ' ') { spacePressed = true; e.preventDefault(); return; }
 
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      // Ctrl+Enter = generate/regenerate (works from anywhere)
+      if (ctrl && e.key === 'Enter') {
+        e.preventDefault();
+        if (pageContent) generateContent();
+        return;
+      }
+
+      // Ctrl+C with no text selection = copy output
+      if (ctrl && e.key === 'c' && lastGeneratedOutput && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        copyOutputToClipboard();
+        return;
+      }
+
       const ti = document.getElementById('textInput');
       if (ti && ti.style.display !== 'none') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 
-      const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key === 'z' && !e.shiftKey) { e.preventDefault(); if (PageSnapAnnotations.undo(annotationState)) { redrawAnnotations(); updateUndoRedo(); } return; }
       if (ctrl && (e.key === 'Z' || (e.key === 'z' && e.shiftKey) || e.key === 'y')) { e.preventDefault(); if (PageSnapAnnotations.redo(annotationState)) { redrawAnnotations(); updateUndoRedo(); } return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && annotationState.selectedId) { e.preventDefault(); PageSnapAnnotations.removeAnnotation(annotationState, annotationState.selectedId); redrawAnnotations(); updateUndoRedo(); return; }

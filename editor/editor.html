@@ -150,102 +150,113 @@
       <!-- Right: Content / AI Output Panel -->
       <div class="panel content-panel" id="contentPanel">
         <div class="content-panel-inner">
-          <!-- Content summary -->
-          <div class="content-summary" id="contentSummary">
-            <h3 id="contentTitle">--</h3>
+          <!-- Compact content header -->
+          <div class="content-header" id="contentSummary">
+            <h3 id="contentTitle" class="content-title">--</h3>
             <div class="content-meta">
               <span id="contentDomain">--</span>
               <span id="contentWordCount">--</span>
             </div>
-            <p class="content-excerpt" id="contentExcerpt">--</p>
-            <div class="content-full-text-toggle" id="contentFullTextToggle" style="display:none">
-              <button class="toggle-text-btn" id="toggleFullText">Show Full Text</button>
-              <button class="toggle-text-btn" id="copyFullText">Copy Text</button>
-            </div>
-            <div class="content-full-text" id="contentFullText" style="display:none"></div>
           </div>
 
-          <!-- Voice selector -->
-          <div class="voice-selector">
-            <label>Voice</label>
-            <select id="voiceSelect">
-              <option value="straight-shooter">Straight Shooter</option>
-              <option value="witty">Witty & Sharp</option>
-              <option value="professional">Professional</option>
-              <option value="provocative">Provocative</option>
-              <option value="academic">Academic</option>
-              <option value="casual">Casual</option>
-            </select>
+          <!-- Quick Actions Bar: click = generate immediately -->
+          <div class="quick-actions" id="quickActions">
+            <button class="quick-action-btn active" data-mode="quickquote" title="Short, punchy quote for X/Twitter (~280 chars)">Quote</button>
+            <button class="quick-action-btn" data-mode="linkedin" title="Professional LinkedIn post (~1500 chars)">LinkedIn</button>
+            <button class="quick-action-btn" data-mode="thread" title="Multi-part thread with numbered posts">Thread</button>
+            <button class="quick-action-btn" data-mode="summary" title="Clean 2-3 paragraph summary">Summary</button>
+            <button class="quick-action-btn more-btn" id="moreModesBtn" title="More output modes">More</button>
           </div>
 
-          <!-- AI Output Mode Selector (grouped) -->
-          <div class="output-mode-group" id="outputModes">
-            <div class="output-mode-group-label">Social</div>
-            <div class="output-mode-row">
-              <button class="output-mode-btn active" data-mode="quickquote">Quick Quote</button>
-              <button class="output-mode-btn" data-mode="hottake">Hot Take</button>
-              <button class="output-mode-btn" data-mode="linkedin">LinkedIn</button>
-              <button class="output-mode-btn" data-mode="thread">Thread</button>
-            </div>
-            <div class="output-mode-group-label">Distill</div>
-            <div class="output-mode-row">
-              <button class="output-mode-btn" data-mode="summary">Summary</button>
-              <button class="output-mode-btn" data-mode="tldr">TL;DR</button>
-              <button class="output-mode-btn" data-mode="bulletbrief">Bullets</button>
-            </div>
-            <div class="output-mode-group-label">Create</div>
-            <div class="output-mode-row">
-              <button class="output-mode-btn" data-mode="newsletter">Newsletter</button>
-              <button class="output-mode-btn" data-mode="blogseed">Blog Seed</button>
-              <button class="output-mode-btn" data-mode="rewrite">Rewrite</button>
-              <button class="output-mode-btn" data-mode="llmextract">LLM Extract</button>
-              <button class="output-mode-btn" data-mode="graphic">Graphic</button>
+          <!-- Expanded modes (hidden by default) -->
+          <div class="more-modes" id="moreModes" style="display:none">
+            <div class="more-modes-grid">
+              <button class="output-mode-btn" data-mode="hottake" title="Bold, opinionated reaction">Hot Take</button>
+              <button class="output-mode-btn" data-mode="tldr" title="One-sentence takeaway">TL;DR</button>
+              <button class="output-mode-btn" data-mode="bulletbrief" title="Key points as bullet list">Bullets</button>
+              <button class="output-mode-btn" data-mode="newsletter" title="Newsletter-style writeup with intro + sections">Newsletter</button>
+              <button class="output-mode-btn" data-mode="blogseed" title="Blog post outline with thesis + sections">Blog Seed</button>
+              <button class="output-mode-btn" data-mode="rewrite" title="Clean rewrite preserving key ideas">Rewrite</button>
+              <button class="output-mode-btn" data-mode="llmextract" title="Clean markdown for feeding into AI tools">LLM Extract</button>
+              <button class="output-mode-btn" data-mode="graphic" title="Social media graphic with quote overlay">Graphic</button>
             </div>
           </div>
 
-          <!-- Custom prompt -->
-          <div class="custom-prompt-area">
-            <input type="text" id="customPrompt" class="custom-prompt" placeholder="Add custom instructions (optional)...">
+          <!-- Voice chips -->
+          <div class="voice-chips" id="voiceChips">
+            <button class="voice-chip active" data-voice="straight-shooter">Direct</button>
+            <button class="voice-chip" data-voice="witty">Witty</button>
+            <button class="voice-chip" data-voice="professional">Pro</button>
+            <button class="voice-chip" data-voice="provocative">Bold</button>
+            <button class="voice-chip" data-voice="casual">Casual</button>
+            <button class="voice-chip" data-voice="academic">Academic</button>
           </div>
 
-          <!-- Generate button -->
-          <div class="generate-row">
-            <button class="generate-btn" id="generateBtn">Generate</button>
-            <button class="generate-btn secondary remix-btn" id="remixBtn" style="display:none" title="Generate a fresh take">Remix</button>
-            <button class="generate-btn secondary batch-btn" id="batchBtn" title="Generate tweet + LinkedIn + summary at once">Batch 3x</button>
-          </div>
-
-          <!-- Quote Sniper: auto-suggested quotable passages -->
-          <div class="quote-sniper" id="quoteSniper" style="display:none">
-            <div class="section-header">Quotable Passages</div>
-            <div class="quote-suggestions" id="quoteSuggestions"></div>
-          </div>
-
-          <!-- AI Output Display -->
-          <div class="ai-output" id="aiOutput">
-            <div class="ai-output-placeholder">
-              <p>Select a mode above and click Generate to create content from this page.</p>
+          <!-- AI Output Display (THE MAIN EVENT) -->
+          <div class="output-card" id="outputCard">
+            <div class="output-card-header" id="outputCardHeader" style="display:none">
+              <span class="output-mode-badge" id="outputModeBadge"></span>
+              <div class="char-count" id="charCount">
+                <span class="count" id="charCountNum"></span>
+                <span id="platformFits"></span>
+              </div>
+            </div>
+            <div class="ai-output" id="aiOutput">
+              <div class="ai-output-placeholder">
+                <p>Pick a mode above to generate content from this page.</p>
+              </div>
             </div>
           </div>
 
           <!-- Batch Output Display -->
           <div class="batch-output" id="batchOutput" style="display:none"></div>
 
-          <!-- Character count + platform fit -->
-          <div class="char-count" id="charCount" style="display:none">
-            <span class="count" id="charCountNum">0 chars</span>
-            <span id="platformFits"></span>
+          <!-- Output actions (prominent when output exists) -->
+          <div class="output-actions" id="outputActions" style="display:none">
+            <button class="output-action-btn copy-main" id="copyOutput" title="Ctrl+C">Copy</button>
+            <button class="output-action-btn" id="copyCloseOutput">Copy & Close</button>
+            <button class="output-action-btn" id="remixOutput" title="Generate a fresh angle">Remix</button>
+            <button class="output-action-btn" id="saveOutput">Save</button>
           </div>
 
-          <!-- Output history (previous generations) -->
+          <!-- Output history -->
           <div class="output-history" id="outputHistory" style="display:none"></div>
 
-          <!-- Output actions -->
-          <div class="output-actions" id="outputActions" style="display:none">
-            <button class="output-action-btn copy-main" id="copyOutput">Copy</button>
-            <button class="output-action-btn" id="copyCloseOutput">Copy & Close</button>
-            <button class="output-action-btn" id="remixOutput">Remix</button>
-            <button class="output-action-btn" id="saveOutput">Save to Library</button>
+          <!-- Collapsible secondary sections -->
+          <div class="secondary-sections">
+            <!-- Custom prompt -->
+            <details class="collapsible-section">
+              <summary class="collapsible-header">Custom Instructions</summary>
+              <div class="collapsible-body">
+                <input type="text" id="customPrompt" class="custom-prompt" placeholder="E.g., 'Focus on the AI angle' or 'Make it controversial'...">
+                <div class="generate-row">
+                  <button class="generate-btn" id="generateBtn">Generate</button>
+                  <button class="generate-btn secondary remix-btn" id="remixBtn" style="display:none">Remix</button>
+                  <button class="generate-btn secondary batch-btn" id="batchBtn" title="Generate 3 formats at once">Batch 3x</button>
+                </div>
+              </div>
+            </details>
+
+            <!-- Quote Sniper -->
+            <details class="collapsible-section" id="quoteSniper" style="display:none">
+              <summary class="collapsible-header">Quotable Passages</summary>
+              <div class="collapsible-body">
+                <div class="quote-suggestions" id="quoteSuggestions"></div>
+              </div>
+            </details>
+
+            <!-- Source content -->
+            <details class="collapsible-section" id="sourceContent" style="display:none">
+              <summary class="collapsible-header">Source Text</summary>
+              <div class="collapsible-body">
+                <p class="content-excerpt" id="contentExcerpt"></p>
+                <div class="content-full-text-toggle" id="contentFullTextToggle" style="display:none">
+                  <button class="toggle-text-btn" id="toggleFullText">Show Full Text</button>
+                  <button class="toggle-text-btn" id="copyFullText">Copy Text</button>
+                </div>
+                <div class="content-full-text" id="contentFullText" style="display:none"></div>
+              </div>
+            </details>
           </div>
 
           <!-- Social Graphic Preview (for graphic mode) -->

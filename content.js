@@ -653,8 +653,8 @@
     const container = document.createElement('div');
     container.id = 'pagesnap-editor-container';
     if (isContentOnly) {
-      // Compact sidebar mode: right-aligned panel, page stays visible
-      container.style.cssText = 'position:fixed;top:0;right:0;width:460px;height:100vh;z-index:2147483647;box-shadow:-4px 0 24px rgba(0,0,0,0.25);';
+      // Compact sidebar mode: slides in from right, page stays visible
+      container.style.cssText = 'position:fixed;top:0;right:0;width:460px;height:100vh;z-index:2147483647;box-shadow:-4px 0 24px rgba(0,0,0,0.25);transform:translateX(100%);transition:transform 0.25s cubic-bezier(0.4,0,0.2,1);';
     } else {
       container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;';
     }
@@ -724,6 +724,13 @@
 
     container.appendChild(iframe);
     document.body.appendChild(container);
+
+    // Trigger sidebar slide-in animation
+    if (isContentOnly) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        container.style.transform = 'translateX(0)';
+      }));
+    }
 
     const onMessage = (e) => {
       // Validate: must include our nonce to prove it came from our editor iframe
