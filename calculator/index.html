@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Newsletter Operations Gap Calculator | Letterhead</title>
+  <link rel="stylesheet" href="calculator.css">
+</head>
+<body>
+  <div class="calculator-app">
+
+    <!-- Header -->
+    <header class="calc-header">
+      <div class="logo">Letterhead</div>
+      <p class="tagline">The Newsletter Operating System</p>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+      <h1>How much is your newsletter operation leaving on the table?</h1>
+      <p class="hero-sub">Answer a few quick questions about your current workflow. We'll show you exactly where the gaps are &mdash; in time, engagement, revenue, and scale.</p>
+    </section>
+
+    <!-- Progress Bar -->
+    <div class="progress-bar">
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-steps">
+        <span class="step active" data-step="1">Your team</span>
+        <span class="step" data-step="2">Your operation</span>
+        <span class="step" data-step="3">Your results</span>
+      </div>
+    </div>
+
+    <!-- Step 1: ICP Selection + Base Inputs -->
+    <section class="calc-step active" id="step1">
+      <h2>Tell us about your organization</h2>
+
+      <div class="icp-selector">
+        <button class="icp-card" data-icp="media">
+          <div class="icp-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3>Media Company</h3>
+          <p>Publisher or content business with multiple brands and newsletters</p>
+        </button>
+        <button class="icp-card" data-icp="agency">
+          <div class="icp-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <h3>Agency</h3>
+          <p>Managing newsletters across multiple clients</p>
+        </button>
+        <button class="icp-card" data-icp="marketer">
+          <div class="icp-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          </div>
+          <h3>Marketing Team</h3>
+          <p>In-house team building audience engagement through content</p>
+        </button>
+      </div>
+
+      <div class="base-inputs hidden" id="baseInputs">
+        <div class="input-group">
+          <label for="numNewsletters">
+            How many newsletters do you manage?
+            <span class="input-hint" id="numNewslettersHint">across all brands</span>
+          </label>
+          <div class="slider-row">
+            <input type="range" id="numNewsletters" min="1" max="200" value="10" class="calc-slider">
+            <span class="slider-value" id="numNewslettersVal">10</span>
+          </div>
+        </div>
+
+        <div class="input-group" id="numClientsGroup" style="display:none;">
+          <label for="numClients">How many clients do you manage newsletters for?</label>
+          <div class="slider-row">
+            <input type="range" id="numClients" min="1" max="50" value="5" class="calc-slider">
+            <span class="slider-value" id="numClientsVal">5</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="editionsPerWeek">Average editions per newsletter per week</label>
+          <div class="slider-row">
+            <input type="range" id="editionsPerWeek" min="1" max="14" value="3" step="1" class="calc-slider">
+            <span class="slider-value" id="editionsPerWeekVal">3</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="hoursPerEdition">Hours your team spends producing each edition</label>
+          <div class="slider-row">
+            <input type="range" id="hoursPerEdition" min="0.5" max="8" value="2" step="0.5" class="calc-slider">
+            <span class="slider-value" id="hoursPerEditionVal">2 hrs</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="teamSize">People involved in newsletter production</label>
+          <div class="slider-row">
+            <input type="range" id="teamSize" min="1" max="30" value="3" class="calc-slider">
+            <span class="slider-value" id="teamSizeVal">3</span>
+          </div>
+        </div>
+
+        <button class="btn-next" id="toStep2">
+          Next: Your performance
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Step 2: Performance & Revenue Inputs -->
+    <section class="calc-step" id="step2">
+      <h2>Your current performance</h2>
+
+      <div class="input-group">
+        <label for="avgListSize">Average subscribers per newsletter</label>
+        <div class="slider-row">
+          <input type="range" id="avgListSize" min="1000" max="500000" value="25000" step="1000" class="calc-slider">
+          <span class="slider-value" id="avgListSizeVal">25,000</span>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label for="currentOpenRate">Current average open rate (%)</label>
+        <div class="slider-row">
+          <input type="range" id="currentOpenRate" min="5" max="60" value="21" step="1" class="calc-slider">
+          <span class="slider-value" id="currentOpenRateVal">21%</span>
+        </div>
+      </div>
+
+      <!-- Media-specific: Ad revenue inputs -->
+      <div id="revenueInputs" class="hidden">
+        <div class="section-label">Newsletter advertising</div>
+        <div class="input-group">
+          <label for="adSlotsPerEdition">Ad/promo slots per edition</label>
+          <div class="slider-row">
+            <input type="range" id="adSlotsPerEdition" min="0" max="10" value="2" step="1" class="calc-slider">
+            <span class="slider-value" id="adSlotsPerEditionVal">2</span>
+          </div>
+        </div>
+        <div class="input-group">
+          <label for="currentCPM">Current effective CPM ($)</label>
+          <div class="slider-row">
+            <input type="range" id="currentCPM" min="5" max="80" value="25" step="1" class="calc-slider">
+            <span class="slider-value" id="currentCPMVal">$25</span>
+          </div>
+        </div>
+        <div class="input-group">
+          <label for="fillRate">Current ad fill rate (%)</label>
+          <div class="slider-row">
+            <input type="range" id="fillRate" min="10" max="100" value="60" step="5" class="calc-slider">
+            <span class="slider-value" id="fillRateVal">60%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step-nav">
+        <button class="btn-back" id="backToStep1">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back
+        </button>
+        <button class="btn-next" id="toStep3">
+          Show me the gap
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Step 3: Results Dashboard -->
+    <section class="calc-step" id="step3">
+      <div class="results-header">
+        <h2>Your Newsletter Operations Gap</h2>
+        <p class="results-sub" id="resultsSub"></p>
+      </div>
+
+      <!-- Total Value Hero -->
+      <div class="total-value-card">
+        <div class="total-label">Total annual opportunity</div>
+        <div class="total-number" id="totalValue">$0</div>
+        <div class="total-breakdown" id="totalBreakdown"></div>
+      </div>
+
+      <!-- Result Cards Grid -->
+      <div class="results-grid">
+
+        <!-- Card 1: Production Time -->
+        <div class="result-card" id="cardProduction">
+          <div class="card-icon production">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="card-title">Production Time Saved</div>
+          <div class="card-metric" id="timeSaved">0 hrs/year</div>
+          <div class="card-detail" id="timeDetail"></div>
+          <div class="card-how">
+            <span class="how-label">How:</span> Letterhead's template builder + AI-powered content assembly + automated governance
+          </div>
+          <div class="card-bar-wrap">
+            <div class="card-bar">
+              <div class="bar-current" id="barTimeCurrent"></div>
+              <div class="bar-saved" id="barTimeSaved"></div>
+            </div>
+            <div class="bar-labels">
+              <span>Current</span>
+              <span>With Letterhead</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Engagement Uplift -->
+        <div class="result-card" id="cardEngagement">
+          <div class="card-icon engagement">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          </div>
+          <div class="card-title">Engagement Uplift</div>
+          <div class="card-metric" id="engagementLift">+0% open rate</div>
+          <div class="card-detail" id="engagementDetail"></div>
+          <div class="card-how">
+            <span class="how-label">How:</span> AI-optimized subject lines, content selection, send timing, and cross-portfolio intelligence
+          </div>
+          <div class="card-bar-wrap">
+            <div class="card-bar">
+              <div class="bar-current" id="barEngCurrent"></div>
+              <div class="bar-saved" id="barEngNew"></div>
+            </div>
+            <div class="bar-labels">
+              <span id="engBarLabelOld">21% opens</span>
+              <span id="engBarLabelNew">27% opens</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Scaling Capacity -->
+        <div class="result-card" id="cardScaling">
+          <div class="card-icon scaling">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="6" height="14" rx="1"/><rect x="9" y="4" width="6" height="17" rx="1"/><rect x="16" y="1" width="6" height="20" rx="1"/></svg>
+          </div>
+          <div class="card-title">Scaling Capacity Unlocked</div>
+          <div class="card-metric" id="scalingMetric">+0 newsletters</div>
+          <div class="card-detail" id="scalingDetail"></div>
+          <div class="card-how">
+            <span class="how-label">How:</span> Portfolio governance, agentic production, automated recurring editions, drag-and-drop templates
+          </div>
+        </div>
+
+        <!-- Card 4: Ad Revenue (media/agency only) -->
+        <div class="result-card" id="cardRevenue" style="display:none;">
+          <div class="card-icon revenue">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+          <div class="card-title">Ad Revenue Gap</div>
+          <div class="card-metric" id="revenueMetric">$0/year</div>
+          <div class="card-detail" id="revenueDetail"></div>
+          <div class="card-how">
+            <span class="how-label">How:</span> Standardized placements, automated fulfillment, sponsor-ready reports in seconds, CPM optimization
+          </div>
+          <div class="card-bar-wrap">
+            <div class="card-bar">
+              <div class="bar-current" id="barRevCurrent"></div>
+              <div class="bar-saved" id="barRevNew"></div>
+            </div>
+            <div class="bar-labels">
+              <span id="revBarLabelOld">Current</span>
+              <span id="revBarLabelNew">Optimized</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5: Compounding Intelligence -->
+        <div class="result-card compound-card" id="cardCompound">
+          <div class="card-icon compound">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+          </div>
+          <div class="card-title">The Compounding Effect</div>
+          <div class="card-detail compound-text" id="compoundDetail">
+            Every send makes Letterhead smarter. Across your portfolio, the platform learns which subject lines win, which content drives clicks, which audiences convert. That intelligence compounds &mdash; your 12-month results will be dramatically better than month one.
+          </div>
+          <div class="compound-stats">
+            <div class="compound-stat">
+              <div class="compound-stat-num" id="compoundSends">0</div>
+              <div class="compound-stat-label">sends/year generating intelligence</div>
+            </div>
+            <div class="compound-stat">
+              <div class="compound-stat-num" id="compoundDataPoints">0</div>
+              <div class="compound-stat-label">data points fueling optimization</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Social proof -->
+      <div class="social-proof">
+        <div class="proof-quote">
+          &ldquo;We've never seen open rates this high before in the history of our sending.&rdquo;
+        </div>
+        <div class="proof-source">
+          <strong>Jon Reynolds</strong>, President, Townsquare Commerce
+          <span class="proof-stat">600+ newsletters &middot; 32% open rates &middot; 75% less production time</span>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div class="results-cta">
+        <h3>Ready to close the gap?</h3>
+        <p>See how teams like yours are achieving these results on Letterhead.</p>
+        <div class="cta-buttons">
+          <a href="#" class="btn-primary" id="ctaDemo">Book a 20-minute demo</a>
+          <button class="btn-secondary" id="ctaEmail">Email me these results</button>
+        </div>
+      </div>
+
+      <!-- Email capture modal -->
+      <div class="email-modal hidden" id="emailModal">
+        <div class="modal-content">
+          <button class="modal-close" id="modalClose">&times;</button>
+          <h3>Get your personalized gap analysis</h3>
+          <p>We'll send you a summary of your results plus relevant case studies.</p>
+          <form id="emailForm">
+            <input type="text" placeholder="Your name" required id="emailName">
+            <input type="email" placeholder="Work email" required id="emailAddr">
+            <input type="text" placeholder="Company" required id="emailCompany">
+            <button type="submit" class="btn-primary">Send my results</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="step-nav">
+        <button class="btn-back" id="backToStep2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Adjust inputs
+        </button>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="calc-footer">
+      <p>Trusted by Cond&eacute; Nast &middot; Townsquare Media &middot; McClatchy &middot; Techstars &middot; and 2,000+ newsletters worldwide</p>
+      <p class="disclaimer">Estimates based on averages from Letterhead customers. Actual results vary by organization.</p>
+    </footer>
+
+  </div>
+
+  <script src="calculator.js"></script>
+</body>
+</html>
